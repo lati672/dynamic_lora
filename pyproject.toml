@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dynamic-lora"
+version = "0.1.0"
+description = "Continual stacked-LoRA experiments and DPO unlearning."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "torch",
+    "transformers",
+    "datasets",
+    "peft",
+    "accelerate",
+    "huggingface_hub",
+    "safetensors",
+]
+
+[tool.setuptools]
+package-dir = {"dynamic_lora" = "."}
+packages = [
+    "dynamic_lora",
+    "dynamic_lora.core",
+    "dynamic_lora.core.lora_app",
+]

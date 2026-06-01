@@ -5,9 +5,12 @@ __pycache__/
 .venv/
 venv/
 env/
+*.egg-info/
 
 .env
 .env.*
 
 .DS_Store
 .ipynb_checkpoints/
+
+artifacts/

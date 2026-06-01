@@ -4,12 +4,13 @@ Self-contained copy of the continual stacked-LoRA experiment.
 
 ## Setup
 
-Create and activate a Python environment, then install the package dependencies:
+Create and activate a Python environment from the repository root, then install
+the package in editable mode:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python3 -m pip install -r dynamic_lora/requirements.txt
+python3 -m pip install -e .
 ```
 
 Install the PyTorch build that matches your CUDA environment if the default `torch`
@@ -27,6 +28,11 @@ Set `HF_TOKEN` before running if your Hugging Face account needs access to the m
 export HF_TOKEN=...
 ```
 
+This repo contains the experiment code, but it does not vendor model weights or
+datasets. The first run downloads the configured Hugging Face model and task
+datasets into the local Hugging Face cache, then writes generated experiment
+outputs under `artifacts/`.
+
 ## Commands
 
 There are two CLI entry points:
@@ -34,7 +40,7 @@ There are two CLI entry points:
 - `python3 -m dynamic_lora.continual_lora` for continual learning
 - `python3 -m dynamic_lora.unlearn` for DPO unlearning of any learned task
 
-Run commands from the repository root.
+Run commands from the repository root after `python3 -m pip install -e .`.
 
 ## Layout
 
@@ -114,6 +120,9 @@ By default this reads the stacked adapter from:
 ```text
 artifacts/dynamic_lora/ag_news_yelp_dbpedia/final/stack
 ```
+
+Create this adapter first by running the continual-learning command, or pass a
+different adapter path with `--stacked-adapter-dir`.
 
 and writes outputs to:
 
