@@ -37,31 +37,19 @@ outputs under `artifacts/`.
 
 ## Commands
 
-There are two CLI entry points:
+There are three CLI entry points:
 
 - `python3 -m dynamic_lora.continual_lora` for continual learning
 - `python3 -m dynamic_lora.unlearn` for DPO unlearning of any learned task
+- `python3 -m dynamic_lora.eval_lora` for evaluating a saved stacked LoRA adapter
 
 Run commands from the repository root after `python3 -m pip install -e .`.
 
 ## Layout
 
-This package contains:
-
-- `continual_lora.py`: continual-learning CLI entry point
-- `unlearn.py`: task-agnostic DPO unlearning CLI entry point
-- `requirements.txt`: Python dependencies for this package
-- `core/constants.py`: shared experiment defaults and artifact paths
-- `core/adapters.py`: LoRA config, stacked-adapter state, penalties, and model builders
-- `core/continual_training.py`: one-task continual training loop
-- `core/data_pipeline.py`: task definitions, dataset sampling, and dataloaders
-- `core/dpo.py`: DPO loss and classification pair construction helpers
-- `core/eval_pipeline.py`: generation-based classification eval
-- `core/eval_export.py`: text/JSON eval exports
-- `core/io_utils.py`: JSON, memory, and LoRA A/B artifact helpers
-- `core/retain_regularization.py`: retain-set projection regularizer
-- `core/seed_utils.py`: deterministic seed setup
-- `core/lora_app/`: local model/config/data/training helpers
+- `continual_lora.py`, `continual_full_finetune.py`, `eval_lora.py`, `unlearn.py`: CLI entry points
+- `core/`: experiment implementation
+- `requirements.txt`, `pyproject.toml`: Python dependency and package metadata
 
 ## Continual Learning
 
@@ -77,7 +65,8 @@ Full finetuning run:
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 -m dynamic_lora.continual_full_finetune
 ```
 
-Both continual runs default to 1000 train samples per task, 100 eval samples per task, and 5 epochs.
+The stacked LoRA run defaults to 2000 train samples per task, 200 eval samples per task, and 10 epochs.
+The full finetuning run defaults to 1000 train samples per task, 100 eval samples per task, and 5 epochs.
 
 Quick smoke test:
 
@@ -100,6 +89,45 @@ Full finetuning outputs go to:
 ```text
 artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune
 ```
+
+## Evaluation
+
+`eval_lora` evaluates a saved stacked LoRA adapter with generation-based
+classification accuracy on:
+
+```text
+ag_news
+yelp_review_full
+dbpedia_14
+```
+
+Run evaluation on the saved adapter:
+
+```bash
+python3 -m dynamic_lora.eval_lora \
+  --adapter-dir artifects/ag_news_yelp_dbpedia/final/stack
+```
+
+Common eval args:
+
+```text
+--adapter-dir
+--output-dir
+--eval-samples-per-task
+--eval-seed
+--max-new-tokens
+--model-id
+--max-length
+```
+
+By default this writes fresh eval outputs next to the run:
+
+```text
+artifects/ag_news_yelp_dbpedia/eval
+```
+
+The current eval path does not compute perplexity, validation loss, or
+logits-based classification.
 
 Sampled datasets are cached under:
 

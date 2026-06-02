@@ -19,14 +19,14 @@ from dynamic_lora.core.adapters import (  # noqa: E402
     set_active_adapters,
 )
 from dynamic_lora.core.constants import (  # noqa: E402
-    DEFAULT_CONTINUAL_EPOCHS,
     DEFAULT_CONTINUAL_OUTPUT_DIR,
-    DEFAULT_EVAL_SAMPLES,
     DEFAULT_L2_PENALTY_WEIGHT,
     DEFAULT_LEARNING_RATE,
+    DEFAULT_LORA_CONTINUAL_EPOCHS,
+    DEFAULT_LORA_EVAL_SAMPLES,
+    DEFAULT_LORA_TRAIN_SAMPLES,
     DEFAULT_ORTHOGONAL_PENALTY_WEIGHT,
     DEFAULT_TASKS,
-    DEFAULT_TRAIN_SAMPLES,
     STACK_ADAPTER_NAME,
 )
 from dynamic_lora.core.continual_training import train_one_task  # noqa: E402
@@ -70,7 +70,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-length", type=int, default=MAX_LENGTH)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=DEFAULT_GRADIENT_ACCUMULATION_STEPS)
-    parser.add_argument("--epochs", type=int, default=DEFAULT_CONTINUAL_EPOCHS)
+    parser.add_argument("--epochs", type=int, default=DEFAULT_LORA_CONTINUAL_EPOCHS)
     parser.add_argument("--learning-rate", type=float, default=DEFAULT_LEARNING_RATE)
     parser.add_argument("--weight-decay", type=float, default=DEFAULT_WEIGHT_DECAY)
     parser.add_argument("--warmup-epochs", type=float, default=DEFAULT_WARMUP_EPOCHS)
@@ -91,8 +91,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--orthogonal-penalty-weight", type=float, default=DEFAULT_ORTHOGONAL_PENALTY_WEIGHT)
     parser.add_argument("--l2-penalty-weight", type=float, default=DEFAULT_L2_PENALTY_WEIGHT)
     parser.add_argument("--target-modules", default=",".join(TARGET_MODULES))
-    parser.add_argument("--train-samples-per-task", type=int, default=DEFAULT_TRAIN_SAMPLES)
-    parser.add_argument("--eval-samples-per-task", type=int, default=DEFAULT_EVAL_SAMPLES)
+    parser.add_argument("--train-samples-per-task", type=int, default=DEFAULT_LORA_TRAIN_SAMPLES)
+    parser.add_argument("--eval-samples-per-task", type=int, default=DEFAULT_LORA_EVAL_SAMPLES)
     parser.add_argument("--train-seed", type=int, default=42)
     parser.add_argument("--eval-seed", type=int, default=123)
     parser.add_argument("--max-new-tokens", type=int, default=4)

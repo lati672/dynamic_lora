@@ -14,3 +14,11 @@ env/
 .ipynb_checkpoints/
 
 artifacts/
+
+artifect/*
+!artifect/ag_news_yelp_dbpedia/
+!artifect/ag_news_yelp_dbpedia/**
+
+artifects/*
+!artifects/ag_news_yelp_dbpedia/
+!artifects/ag_news_yelp_dbpedia/**
