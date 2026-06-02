@@ -10,6 +10,8 @@ the package in editable mode:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip
+python3 -m pip install -r requirements.txt
 python3 -m pip install -e .
 ```
 
@@ -22,10 +24,10 @@ The default model is:
 meta-llama/Llama-3.2-1B-Instruct
 ```
 
-Set `HF_TOKEN` before running if your Hugging Face account needs access to the model:
+Log in with the Hugging Face CLI before running if your account needs access to the model:
 
 ```bash
-export HF_TOKEN=...
+hf auth login
 ```
 
 This repo contains the experiment code, but it does not vendor model weights or
@@ -63,14 +65,19 @@ This package contains:
 
 ## Continual Learning
 
-Full run:
+Stacked LoRA run:
 
 ```bash
-PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 -m dynamic_lora.continual_lora \
-  --train-samples-per-task 2000 \
-  --eval-samples-per-task 200 \
-  --epochs 10
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 -m dynamic_lora.continual_lora
 ```
+
+Full finetuning run:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 -m dynamic_lora.continual_full_finetune
+```
+
+Both continual runs default to 1000 train samples per task, 100 eval samples per task, and 5 epochs.
 
 Quick smoke test:
 
@@ -86,6 +93,12 @@ Default outputs go to:
 
 ```text
 artifacts/dynamic_lora/ag_news_yelp_dbpedia
+```
+
+Full finetuning outputs go to:
+
+```text
+artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune
 ```
 
 Sampled datasets are cached under:

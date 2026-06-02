@@ -41,7 +41,7 @@ def select_subset(dataset: Dataset, sample_count: int, seed: int) -> Dataset:
 def task_spec(task_name: str) -> dict:
     if task_name == "ag_news":
         return {
-            "dataset_id": "ag_news",
+            "dataset_id": "fancyzhx/ag_news",
             "text_field": "text",
             "train_split": "train",
             "eval_split": "test",

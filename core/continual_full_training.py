@@ -1,32 +1,22 @@
 import math
 
 import torch
-from peft import PeftModel
+from torch import nn
 from torch.utils.data import DataLoader
 
-from dynamic_lora.core.adapters import (
-    l2_penalty,
-    orthogonal_penalty,
-    set_active_adapters,
-    set_only_adapter_trainable,
-)
 from dynamic_lora.core.lora_app.config import TrainingConfig
 
 
-def train_one_task(
-    model: PeftModel,
+def train_full_one_task(
+    model: nn.Module,
     dataloader: DataLoader,
     config: TrainingConfig,
-    train_adapter_name: str,
-    active_adapters: list[str],
-    old_adapter_name: str | None,
-    orthogonal_penalty_enabled: bool,
-    orthogonal_penalty_weight: float,
-    l2_penalty_weight: float,
+    task_name: str,
     log_every_steps: int,
 ) -> list[dict[str, float | int]]:
-    set_active_adapters(model, active_adapters)
-    set_only_adapter_trainable(model, train_adapter_name)
+    for parameter in model.parameters():
+        parameter.requires_grad_(True)
+
     optimizer = torch.optim.AdamW(
         [parameter for parameter in model.parameters() if parameter.requires_grad],
         lr=config.learning_rate,
@@ -49,7 +39,7 @@ def train_one_task(
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
     model.train()
     print(
-        f"[train:start] adapter={train_adapter_name} epochs={config.epochs} "
+        f"[train:start] mode=full task={task_name} epochs={config.epochs} "
         f"batches_per_epoch={len(dataloader)} accumulation_steps={accumulation_steps} "
         f"optimizer_steps_per_epoch={steps_per_epoch} warmup_steps={warmup_steps}",
         flush=True,
@@ -57,12 +47,9 @@ def train_one_task(
 
     for epoch in range(config.epochs):
         total_loss = 0.0
-        total_ce_loss = 0.0
-        total_orthogonal_penalty = 0.0
-        total_l2_penalty = 0.0
         optimizer.zero_grad()
         print(
-            f"[train:epoch:start] adapter={train_adapter_name} epoch={epoch + 1}/{config.epochs}",
+            f"[train:epoch:start] mode=full task={task_name} epoch={epoch + 1}/{config.epochs}",
             flush=True,
         )
         for step_index, batch in enumerate(dataloader, start=1):
@@ -71,18 +58,7 @@ def train_one_task(
                 attention_mask=batch.attention_mask.to(device),
                 labels=batch.labels.to(device),
             )
-            ce_loss = outputs.loss
-            orth_penalty = (
-                orthogonal_penalty(model, old_adapter_name, train_adapter_name)
-                if orthogonal_penalty_enabled
-                else torch.zeros((), dtype=torch.float32, device=device)
-            )
-            l2_reg = (
-                l2_penalty(model, train_adapter_name)
-                if l2_penalty_weight > 0
-                else torch.zeros((), dtype=torch.float32, device=device)
-            )
-            loss = ce_loss + orthogonal_penalty_weight * orth_penalty + l2_penalty_weight * l2_reg
+            loss = outputs.loss
             (loss / accumulation_steps).backward()
 
             if step_index % accumulation_steps == 0 or step_index == len(dataloader):
@@ -92,40 +68,30 @@ def train_one_task(
                 optimizer_step_count += 1
 
             total_loss += float(loss.detach().cpu())
-            total_ce_loss += float(ce_loss.detach().cpu())
-            total_orthogonal_penalty += float(orth_penalty.detach().cpu())
-            total_l2_penalty += float(l2_reg.detach().cpu())
             should_log_step = log_every_steps > 0 and (
                 step_index % log_every_steps == 0 or step_index == len(dataloader)
             )
             if should_log_step:
                 print(
-                    f"[train:step] adapter={train_adapter_name} epoch={epoch + 1}/{config.epochs} "
-                    f"batch={step_index}/{len(dataloader)} "
-                    f"avg_loss={total_loss / step_index:.4f} "
-                    f"avg_ce_loss={total_ce_loss / step_index:.4f} "
-                    f"lr={scheduler.get_last_lr()[0]:.6g} "
-                    f"optimizer_steps={optimizer_step_count}",
+                    f"[train:step] mode=full task={task_name} epoch={epoch + 1}/{config.epochs} "
+                    f"batch={step_index}/{len(dataloader)} avg_loss={total_loss / step_index:.4f} "
+                    f"lr={scheduler.get_last_lr()[0]:.6g} optimizer_steps={optimizer_step_count}",
                     flush=True,
                 )
 
         row = {
             "epoch": epoch + 1,
             "loss": total_loss / len(dataloader),
-            "ce_loss": total_ce_loss / len(dataloader),
-            "orthogonal_penalty": total_orthogonal_penalty / len(dataloader),
-            "l2_penalty": total_l2_penalty / len(dataloader),
             "optimizer_steps": optimizer_step_count,
             "learning_rate": scheduler.get_last_lr()[0],
         }
         epoch_losses.append(row)
         print(
-            f"[train:epoch:done] adapter={train_adapter_name} epoch={row['epoch']}/{config.epochs} "
-            f"loss={row['loss']:.4f} ce_loss={row['ce_loss']:.4f} "
-            f"orthogonal_penalty={row['orthogonal_penalty']:.6f} "
-            f"l2_penalty={row['l2_penalty']:.6f} "
-            f"lr={row['learning_rate']:.6g} optimizer_steps={optimizer_step_count}",
+            f"[train:epoch:done] mode=full task={task_name} epoch={row['epoch']}/{config.epochs} "
+            f"loss={row['loss']:.4f} lr={row['learning_rate']:.6g} "
+            f"optimizer_steps={optimizer_step_count}",
             flush=True,
         )
-    print(f"[train:done] adapter={train_adapter_name}", flush=True)
+
+    print(f"[train:done] mode=full task={task_name}", flush=True)
     return epoch_losses
