@@ -1,0 +1,92 @@
+[
+  {
+    "epoch": 1,
+    "loss": 0.764573391571641,
+    "ce_loss": 0.764573391571641,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 32,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 2,
+    "loss": 0.12355422264710068,
+    "ce_loss": 0.12355422264710068,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 64,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 3,
+    "loss": 0.10291184656973928,
+    "ce_loss": 0.10291184656973928,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 96,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 4,
+    "loss": 0.06968846858665347,
+    "ce_loss": 0.06968846858665347,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 128,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 5,
+    "loss": 0.054251481576357036,
+    "ce_loss": 0.054251481576357036,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 160,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 6,
+    "loss": 0.02484887487301603,
+    "ce_loss": 0.02484887487301603,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 192,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 7,
+    "loss": 0.029461407375289128,
+    "ce_loss": 0.029461407375289128,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 224,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 8,
+    "loss": 0.02509489924670197,
+    "ce_loss": 0.02509489924670197,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 256,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 9,
+    "loss": 0.013873693506291602,
+    "ce_loss": 0.013873693506291602,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 288,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 10,
+    "loss": 0.011593778246897272,
+    "ce_loss": 0.011593778246897272,
+    "orthogonal_penalty": 0.0,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 320,
+    "learning_rate": 0.001
+  }
+]

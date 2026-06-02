@@ -1,0 +1,92 @@
+[
+  {
+    "epoch": 1,
+    "loss": 3.7188286838531495,
+    "ce_loss": 0.31231990161538126,
+    "orthogonal_penalty": 6.813017555236817,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 32,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 2,
+    "loss": 2.1341356701850893,
+    "ce_loss": 0.2412024358510971,
+    "orthogonal_penalty": 3.7858664627075194,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 64,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 3,
+    "loss": 1.9706178727149963,
+    "ce_loss": 0.19786076858639717,
+    "orthogonal_penalty": 3.5455142040252685,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 96,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 4,
+    "loss": 1.9069018893241882,
+    "ce_loss": 0.1611684655174613,
+    "orthogonal_penalty": 3.4914668483734133,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 128,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 5,
+    "loss": 1.8648890252113342,
+    "ce_loss": 0.11628054994903504,
+    "orthogonal_penalty": 3.4972169456481934,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 160,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 6,
+    "loss": 1.8135831813812255,
+    "ce_loss": 0.09654056456685066,
+    "orthogonal_penalty": 3.434085235595703,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 192,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 7,
+    "loss": 1.783556077480316,
+    "ce_loss": 0.06767180934362113,
+    "orthogonal_penalty": 3.4317685356140135,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 224,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 8,
+    "loss": 1.7714173636436463,
+    "ce_loss": 0.05532866414124146,
+    "orthogonal_penalty": 3.432177398681641,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 256,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 9,
+    "loss": 1.7280837292671203,
+    "ce_loss": 0.031658262083888986,
+    "orthogonal_penalty": 3.3928509349822997,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 288,
+    "learning_rate": 0.001
+  },
+  {
+    "epoch": 10,
+    "loss": 1.7560143094062806,
+    "ce_loss": 0.02828763699474803,
+    "orthogonal_penalty": 3.4554533443450928,
+    "l2_penalty": 0.0,
+    "optimizer_steps": 320,
+    "learning_rate": 0.001
+  }
+]
