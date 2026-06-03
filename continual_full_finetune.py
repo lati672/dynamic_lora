@@ -24,6 +24,8 @@ from dynamic_lora.core.data_pipeline import (  # noqa: E402
 )
 from dynamic_lora.core.eval_export import (  # noqa: E402
     build_task_eval_summary,
+    eval_output_dir_for_checkpoint,
+    eval_output_dir_for_run,
     write_learned_task_eval_results_txt,
     write_task_eval_results_txt,
 )
@@ -82,6 +84,8 @@ def main() -> None:
     set_global_seed(args.train_seed)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    eval_output_dir = eval_output_dir_for_run(output_dir)
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
     token = os.environ.get("HF_TOKEN")
     print(
         f"[run:start] experiment=continual_full_finetune model={args.model_id} "
@@ -191,8 +195,10 @@ def main() -> None:
                 "task_eval_results": stage_eval_results,
             }
         )
-        save_json(task_dir / "learned_task_eval_results.json", stage_eval_results)
-        print(f"[save] path={task_dir / 'learned_task_eval_results.json'}", flush=True)
+        task_eval_output_dir = eval_output_dir_for_checkpoint(output_dir, checkpoint_name)
+        task_eval_output_dir.mkdir(parents=True, exist_ok=True)
+        save_json(task_eval_output_dir / "learned_task_eval_results.json", stage_eval_results)
+        print(f"[save] path={task_eval_output_dir / 'learned_task_eval_results.json'}", flush=True)
 
         print(f"[save:start] checkpoint={checkpoint_name} path={task_dir}", flush=True)
         model.save_pretrained(task_dir)
@@ -245,11 +251,12 @@ def main() -> None:
     )
     save_json(output_dir / "experiment_metadata.json", result)
     save_json(output_dir / "all_epoch_losses.json", all_losses)
-    save_json(output_dir / "learned_task_eval_results.json", learned_task_eval_results)
-    save_json(output_dir / "task_eval_results.json", task_eval_summary)
-    write_learned_task_eval_results_txt(output_dir / "learned_task_eval_results.txt", learned_task_eval_results)
-    write_task_eval_results_txt(output_dir / "task_eval_results.txt", learned_task_eval_results, eval_results)
+    save_json(eval_output_dir / "learned_task_eval_results.json", learned_task_eval_results)
+    save_json(eval_output_dir / "task_eval_results.json", task_eval_summary)
+    write_learned_task_eval_results_txt(eval_output_dir / "learned_task_eval_results.txt", learned_task_eval_results)
+    write_task_eval_results_txt(eval_output_dir / "task_eval_results.txt", learned_task_eval_results, eval_results)
     print(f"[metadata:done] path={output_dir}", flush=True)
+    print(f"[eval:outputs] path={eval_output_dir}", flush=True)
 
     del model
     release_memory()
