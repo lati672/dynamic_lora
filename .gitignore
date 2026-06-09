@@ -13,11 +13,7 @@ env/
 .DS_Store
 .ipynb_checkpoints/
 
-artifacts/*
-!artifacts/dynamic_lora/
-artifacts/dynamic_lora/*
-!artifacts/dynamic_lora/ag_news_yelp_dbpedia/
-!artifacts/dynamic_lora/ag_news_yelp_dbpedia/**
+artifacts/
 outputs/*
 !outputs/ag_news_yelp_dbpedia/
 !outputs/ag_news_yelp_dbpedia/**

@@ -37,12 +37,13 @@ datasets into the local Hugging Face cache, then writes model checkpoints under
 
 ## Commands
 
-There are four CLI entry points:
+There are five CLI entry points:
 
 - `python3 -m dynamic_lora.continual_lora` for continual learning
 - `python3 -m dynamic_lora.unlearn` for DPO unlearning of any learned task
 - `python3 -m dynamic_lora.eval_lora` for evaluating a saved stacked LoRA adapter
 - `python3 -m dynamic_lora.spectral_analysis` for singular-vector/intruder analysis
+- `python3 -m dynamic_lora.load_hf_model` for loading an artifact from Hugging Face
 
 Run commands from the repository root after `python3 -m pip install -e .`.
 
@@ -66,7 +67,17 @@ Full finetuning run:
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 -m dynamic_lora.continual_full_finetune
 ```
 
-Both the stacked LoRA and full finetuning runs default to 2000 train samples per task, 200 eval samples per task, and 10 epochs.
+The stacked LoRA run defaults to 2000 train samples per task, 200 eval samples
+per task, and 10 epochs. Full finetuning uses gentler continual-learning
+defaults: 3 epochs, a `2e-5` learning rate, and no replay. This keeps the
+full-model run directly comparable with stacked LoRA for alignment analysis.
+
+Enable full-model replay as an optional stronger continual-learning baseline:
+
+```bash
+python3 -m dynamic_lora.continual_full_finetune \
+  --replay-samples-per-previous-task 500
+```
 
 Quick smoke test:
 
@@ -135,6 +146,38 @@ outputs/ag_news_yelp_dbpedia/eval
 
 The current eval path does not compute perplexity, validation loss, or
 logits-based classification.
+
+## Load Models From Hugging Face
+
+The artifact repo is `Kt672/artifacts`. Load the final continual stacked-LoRA
+model, including its pretrained base model:
+
+```bash
+python3 -m dynamic_lora.load_hf_model \
+  --mode lora \
+  --prompt "Classify this news article: The team won the championship."
+```
+
+Load the final continual full-finetuned model:
+
+```bash
+python3 -m dynamic_lora.load_hf_model \
+  --mode full \
+  --prompt "Classify this news article: The team won the championship."
+```
+
+The reusable Python API is:
+
+```python
+from dynamic_lora.core.hf_model_loader import load_hf_continual_model
+
+tokenizer, lora_model = load_hf_continual_model("lora")
+tokenizer, full_model = load_hf_continual_model("full")
+```
+
+Use `subfolder=` to load an intermediate continual-learning checkpoint. For
+LoRA, provide the checkpoint folder containing `stack/`, such as
+`dynamic_lora/ag_news_yelp_dbpedia/task_1_yelp_review_full`.
 
 ## Spectral Analysis
 

@@ -1,7 +1,8 @@
 from pathlib import Path
+from typing import Sequence
 
 import torch
-from datasets import Dataset, load_dataset, load_from_disk
+from datasets import Dataset, concatenate_datasets, load_dataset, load_from_disk
 from torch.utils.data import DataLoader
 
 from dynamic_lora.core.lora_app.config import TrainingConfig
@@ -127,13 +128,12 @@ def load_task_datasets(
     )
 
 
-def build_dataloader(
+def prepare_task_dataset(
     tokenizer,
     config: TrainingConfig,
     task_name: str,
     source_dataset: Dataset,
-    shuffle_seed: int | None = None,
-) -> DataLoader:
+) -> Dataset:
     rows = source_dataset.map(
         lambda example: prepare_example(
             tokenizer=tokenizer,
@@ -143,7 +143,27 @@ def build_dataloader(
             max_length=config.max_length,
         )
     )
-    dataset = rows.remove_columns(source_dataset.column_names)
+    return rows.remove_columns(source_dataset.column_names)
+
+
+def build_mixed_task_dataloader(
+    tokenizer,
+    config: TrainingConfig,
+    task_datasets: Sequence[tuple[str, Dataset]],
+    shuffle_seed: int | None = None,
+) -> DataLoader:
+    if not task_datasets:
+        raise ValueError("task_datasets must contain at least one task")
+
+    prepared_datasets = [
+        prepare_task_dataset(tokenizer, config, task_name, source_dataset)
+        for task_name, source_dataset in task_datasets
+    ]
+    dataset = (
+        prepared_datasets[0]
+        if len(prepared_datasets) == 1
+        else concatenate_datasets(prepared_datasets)
+    )
     generator = None
     if shuffle_seed is not None:
         generator = torch.Generator()
@@ -154,4 +174,19 @@ def build_dataloader(
         shuffle=True,
         generator=generator,
         collate_fn=collate_batch,
+    )
+
+
+def build_dataloader(
+    tokenizer,
+    config: TrainingConfig,
+    task_name: str,
+    source_dataset: Dataset,
+    shuffle_seed: int | None = None,
+) -> DataLoader:
+    return build_mixed_task_dataloader(
+        tokenizer=tokenizer,
+        config=config,
+        task_datasets=[(task_name, source_dataset)],
+        shuffle_seed=shuffle_seed,
     )

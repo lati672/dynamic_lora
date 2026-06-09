@@ -8,18 +8,21 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from dynamic_lora.core.constants import (  # noqa: E402
-    DEFAULT_CONTINUAL_EPOCHS,
     DEFAULT_CONTINUAL_FULL_OUTPUT_DIR,
     DEFAULT_EVAL_SAMPLES,
+    DEFAULT_FULL_CONTINUAL_EPOCHS,
+    DEFAULT_FULL_CONTINUAL_LEARNING_RATE,
+    DEFAULT_FULL_REPLAY_SAMPLES,
     DEFAULT_TASKS,
     DEFAULT_TRAIN_SAMPLES,
 )
 from dynamic_lora.core.continual_full_training import train_full_one_task  # noqa: E402
 from dynamic_lora.core.data_pipeline import (  # noqa: E402
-    build_dataloader,
+    build_mixed_task_dataloader,
     build_question,
     label_text,
     load_task_datasets,
+    select_subset,
     task_spec,
 )
 from dynamic_lora.core.eval_export import (  # noqa: E402
@@ -36,7 +39,6 @@ from dynamic_lora.core.lora_app.config import (  # noqa: E402
     DEFAULT_GRADIENT_ACCUMULATION_STEPS,
     DEFAULT_WARMUP_EPOCHS,
     DEFAULT_WEIGHT_DECAY,
-    FULL_LEARNING_RATE,
     MAX_LENGTH,
     MODEL_ID,
     TrainingConfig,
@@ -57,11 +59,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-length", type=int, default=MAX_LENGTH)
     parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
     parser.add_argument("--gradient-accumulation-steps", type=int, default=DEFAULT_GRADIENT_ACCUMULATION_STEPS)
-    parser.add_argument("--epochs", type=int, default=DEFAULT_CONTINUAL_EPOCHS)
-    parser.add_argument("--learning-rate", type=float, default=FULL_LEARNING_RATE)
+    parser.add_argument("--epochs", type=int, default=DEFAULT_FULL_CONTINUAL_EPOCHS)
+    parser.add_argument("--learning-rate", type=float, default=DEFAULT_FULL_CONTINUAL_LEARNING_RATE)
     parser.add_argument("--weight-decay", type=float, default=DEFAULT_WEIGHT_DECAY)
     parser.add_argument("--warmup-epochs", type=float, default=DEFAULT_WARMUP_EPOCHS)
     parser.add_argument("--train-samples-per-task", type=int, default=DEFAULT_TRAIN_SAMPLES)
+    parser.add_argument(
+        "--replay-samples-per-previous-task",
+        type=int,
+        default=DEFAULT_FULL_REPLAY_SAMPLES,
+        help="Rehearsal examples included from each previously learned task. Set to 0 to disable replay.",
+    )
     parser.add_argument("--eval-samples-per-task", type=int, default=DEFAULT_EVAL_SAMPLES)
     parser.add_argument("--train-seed", type=int, default=42)
     parser.add_argument("--eval-seed", type=int, default=123)
@@ -81,6 +89,8 @@ def set_active_full_model(*args, **kwargs) -> None:
 
 def main() -> None:
     args = parse_args()
+    if args.replay_samples_per_previous_task < 0:
+        raise SystemExit("--replay-samples-per-previous-task must be non-negative")
     set_global_seed(args.train_seed)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -90,7 +100,9 @@ def main() -> None:
     print(
         f"[run:start] experiment=continual_full_finetune model={args.model_id} "
         f"tasks={','.join(DEFAULT_TASKS)} train_samples_per_task={args.train_samples_per_task} "
+        f"replay_samples_per_previous_task={args.replay_samples_per_previous_task} "
         f"eval_samples_per_task={args.eval_samples_per_task} epochs={args.epochs} "
+        f"learning_rate={args.learning_rate} "
         f"output_dir={output_dir}",
         flush=True,
     )
@@ -148,12 +160,27 @@ def main() -> None:
             flush=True,
         )
 
-        print(f"[dataloader:start] task={task_name}", flush=True)
-        dataloader = build_dataloader(
+        replay_task_datasets = []
+        if args.replay_samples_per_previous_task > 0:
+            for previous_task_index, previous_task_name in enumerate(DEFAULT_TASKS[:task_index]):
+                replay_dataset = select_subset(
+                    train_datasets[previous_task_name],
+                    args.replay_samples_per_previous_task,
+                    seed=task_seed + previous_task_index + 1,
+                )
+                replay_task_datasets.append((previous_task_name, replay_dataset))
+
+        mixed_task_datasets = [(task_name, train_datasets[task_name]), *replay_task_datasets]
+        replay_rows = sum(len(dataset) for _, dataset in replay_task_datasets)
+        print(
+            f"[dataloader:start] task={task_name} current_rows={len(train_datasets[task_name])} "
+            f"replay_rows={replay_rows}",
+            flush=True,
+        )
+        dataloader = build_mixed_task_dataloader(
             tokenizer,
             config,
-            task_name,
-            train_datasets[task_name],
+            mixed_task_datasets,
             shuffle_seed=task_seed,
         )
         print(f"[dataloader:done] task={task_name} batches={len(dataloader)}", flush=True)
@@ -234,12 +261,16 @@ def main() -> None:
         "model_id": args.model_id,
         "tasks": list(DEFAULT_TASKS),
         "train_samples_per_task": args.train_samples_per_task,
+        "replay_samples_per_previous_task": args.replay_samples_per_previous_task,
         "eval_samples_per_task": args.eval_samples_per_task,
         "epochs": args.epochs,
         "learning_rate": args.learning_rate,
         "weight_decay": args.weight_decay,
         "warmup_epochs": args.warmup_epochs,
         "training_mode": "full_finetuning",
+        "continual_learning_strategy": (
+            "experience_replay" if args.replay_samples_per_previous_task > 0 else "naive_sequential"
+        ),
         "checkpoint_strategy": "save_full_model_after_each_task",
         "evaluation_metric": "accuracy",
         "learned_task_eval_results": learned_task_eval_results,
