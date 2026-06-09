@@ -181,16 +181,20 @@ LoRA, provide the checkpoint folder containing `stack/`, such as
 
 ## Spectral Analysis
 
-Compare full-model and merged LoRA checkpoints against the pretrained base model:
+From the `dynamic_lora` repository directory, compare full-model and merged
+LoRA checkpoints against the pretrained base model:
 
 ```bash
-python3 -m dynamic_lora.spectral_analysis \
+cd /workspace/dynamic_lora
+
+python3 spectral_analysis.py \
   --model-id meta-llama/Llama-3.2-1B-Instruct \
   --layers 0,8,15 \
+  --top-k 20 \
   --modules q_proj,v_proj,up_proj,down_proj \
-  --lora-checkpoint after_ag_news=artifects/ag_news_yelp_dbpedia/task_0_ag_news \
-  --lora-checkpoint after_ag_news_yelp=artifects/ag_news_yelp_dbpedia/task_1_yelp_review_full \
-  --lora-checkpoint after_all=artifects/ag_news_yelp_dbpedia/task_2_dbpedia_14 \
+  --lora-checkpoint after_ag_news=artifacts/dynamic_lora/ag_news_yelp_dbpedia/task_0_ag_news \
+  --lora-checkpoint after_ag_news_yelp=artifacts/dynamic_lora/ag_news_yelp_dbpedia/task_1_yelp_review_full \
+  --lora-checkpoint after_all=artifacts/dynamic_lora/ag_news_yelp_dbpedia/task_2_dbpedia_14 \
   --full-checkpoint after_ag_news=artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/task_0_ag_news_full \
   --full-checkpoint after_ag_news_yelp=artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/task_1_yelp_review_full_full \
   --full-checkpoint after_all=artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/task_2_dbpedia_14_full
@@ -199,7 +203,16 @@ python3 -m dynamic_lora.spectral_analysis \
 Checkpoint arguments are repeatable and their order defines continual-learning
 stage order. A LoRA path can point directly to an adapter or to a stage directory
 containing `stack/`. Outputs include per-matrix heatmaps, `intruder_counts.csv`,
-and `intruder_summary.png`.
+`intruder_summary.png`, and `matching_vector_cosine_mean_over_layers.csv`.
+Each checkpoint also gets a `matching_vectors_mean_over_layers.png` heatmap,
+which compares each of the top matching singular-vector pairs and averages
+their absolute cosine similarities across the selected layers. Per-module
+`MODULE_mean_over_layers.png` heatmaps contain the full top-20 by top-20
+pairwise cosine-similarity matrix averaged across the selected layers. All
+heatmaps use the size selected by `--top-k`, which defaults to 20. By default,
+the outputs are written under
+`outputs/spectral_analysis/` relative to the repository directory. Use
+`--output-dir PATH` to choose a different location.
 
 Sampled datasets are cached under:
 

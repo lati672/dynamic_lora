@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
         epilog=(
             "Example:\n"
-            "  python3 -m dynamic_lora.spectral_analysis \\\n"
+            "  python3 spectral_analysis.py \\\n"
             "    --model-id meta-llama/Llama-3.2-1B-Instruct \\\n"
             "    --lora-checkpoint after_ag_news=artifacts/run/task_0_ag_news \\\n"
             "    --full-checkpoint after_ag_news=artifacts/full/task_0_ag_news_full"
@@ -99,15 +99,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--modules", type=parse_csv_strings, default=("q_proj", "v_proj", "up_proj", "down_proj"))
     parser.add_argument("--layers", type=parse_layer_indices, default=(0,), help="Comma-separated layer indices.")
-    parser.add_argument("--top-k", type=int, default=50)
-    parser.add_argument("--threshold", type=float, default=0.5)
     parser.add_argument(
-        "--heatmap-size",
+        "--top-k",
         type=int,
-        default=50,
-        help="Number of leading base and tuned singular vectors shown in each heatmap.",
+        default=20,
+        help="Number of leading tuned singular vectors used for intruder and matching-vector analysis.",
     )
-    parser.add_argument("--output-dir", type=Path, default=Path("artifacts/spectral_analysis"))
+    parser.add_argument("--threshold", type=float, default=0.5)
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs/spectral_analysis"))
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument(
         "--load-dtype",
@@ -119,8 +118,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if not args.full_checkpoint and not args.lora_checkpoint:
         parser.error("Provide at least one --full-checkpoint or --lora-checkpoint")
-    if args.top_k <= 0 or args.heatmap_size <= 0:
-        parser.error("--top-k and --heatmap-size must be positive")
+    if args.top_k <= 0:
+        parser.error("--top-k must be positive")
     if not 0.0 <= args.threshold <= 1.0:
         parser.error("--threshold must be between 0 and 1")
     return args
@@ -253,11 +252,51 @@ def save_heatmap(
     title: str,
 ) -> None:
     figure, axis = plt.subplots(figsize=(8, 7))
-    image = axis.imshow(similarity.numpy(), vmin=0.0, vmax=1.0, cmap="viridis", aspect="auto")
+    image = axis.imshow(similarity.numpy(), vmin=0.0, vmax=1.0, cmap="Blues", aspect="auto")
     axis.set_xlabel("Singular vectors in W_tuned")
     axis.set_ylabel("Singular vectors in W_base")
+    x_step = max(1, similarity.shape[1] // 10)
+    y_step = max(1, similarity.shape[0] // 10)
+    x_ticks = list(range(0, similarity.shape[1], x_step))
+    y_ticks = list(range(0, similarity.shape[0], y_step))
+    axis.set_xticks(x_ticks, labels=[index + 1 for index in x_ticks])
+    axis.set_yticks(y_ticks, labels=[index + 1 for index in y_ticks])
     axis.set_title(title, fontsize=10)
     figure.colorbar(image, ax=axis, label="Absolute cosine similarity")
+    figure.tight_layout()
+    figure.savefig(output_path, dpi=180)
+    plt.close(figure)
+
+
+def save_layer_averaged_heatmap(
+    rows: list[dict[str, object]],
+    modules: tuple[str, ...],
+    output_path: Path,
+    title: str,
+) -> None:
+    available_modules = [module for module in modules if any(row["module_name"] == module for row in rows)]
+    max_vector_index = max(int(row["vector_index"]) for row in rows)
+    heatmap = torch.full((len(available_modules), max_vector_index), torch.nan)
+    for module_index, module_name in enumerate(available_modules):
+        module_rows = [row for row in rows if row["module_name"] == module_name]
+        for vector_index in range(1, max_vector_index + 1):
+            similarities = [
+                float(row["cosine_similarity"])
+                for row in module_rows
+                if row["vector_index"] == vector_index
+            ]
+            if similarities:
+                heatmap[module_index, vector_index - 1] = sum(similarities) / len(similarities)
+
+    figure_width = max(8, max_vector_index * 0.45)
+    figure, axis = plt.subplots(figsize=(figure_width, max(3, len(available_modules) * 0.7)))
+    image = axis.imshow(heatmap.numpy(), vmin=0.0, vmax=1.0, cmap="Blues", aspect="auto")
+    axis.set_xlabel("Matching singular-vector index")
+    axis.set_ylabel("Module")
+    axis.set_xticks(range(max_vector_index), labels=range(1, max_vector_index + 1))
+    axis.set_yticks(range(len(available_modules)), labels=available_modules)
+    axis.set_title(title, fontsize=10)
+    figure.colorbar(image, ax=axis, label="Mean absolute cosine similarity across layers")
     figure.tight_layout()
     figure.savefig(output_path, dpi=180)
     plt.close(figure)
@@ -268,13 +307,15 @@ def analyze_checkpoint(
     model: nn.Module,
     base_spectra: dict[tuple[int, str], Spectrum],
     args: argparse.Namespace,
-) -> list[dict[str, object]]:
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     selected = selected_weight_modules(model, args.layers, args.modules)
     missing = sorted(set(base_spectra) - set(selected))
     if missing:
         raise ValueError(f"Checkpoint {spec.name!r} is missing requested matrices: {missing}")
 
     rows = []
+    matching_vector_rows = []
+    pairwise_similarities_by_module: dict[str, list[torch.Tensor]] = {}
     heatmap_dir = args.output_dir / "heatmaps" / spec.model_type / safe_filename(spec.name)
     heatmap_dir.mkdir(parents=True, exist_ok=True)
     for (layer_index, module_name), base in sorted(base_spectra.items()):
@@ -291,12 +332,12 @@ def analyze_checkpoint(
                 f"base={base.left_vectors.shape}, tuned={tuned.left_vectors.shape}"
             )
 
-        heatmap_base_count = min(args.heatmap_size, base.left_vectors.shape[1])
-        heatmap_tuned_count = min(args.heatmap_size, tuned.left_vectors.shape[1])
+        heatmap_base_count = min(args.top_k, base.left_vectors.shape[1])
+        heatmap_tuned_count = min(args.top_k, tuned.left_vectors.shape[1])
         similarity = torch.abs(
             base.left_vectors[:, :heatmap_base_count].T
             @ tuned.left_vectors[:, :heatmap_tuned_count]
-        )
+        ).clamp(max=1.0)
         title = (
             f"{spec.model_type} | {spec.name} | layer {layer_index} | {module_name}\n"
             f"{base.module_path} vs {tuned.module_path}"
@@ -307,7 +348,33 @@ def analyze_checkpoint(
             title,
         )
 
-        effective_top_k = min(args.top_k, tuned.left_vectors.shape[1])
+        effective_top_k = min(
+            args.top_k,
+            base.left_vectors.shape[1],
+            tuned.left_vectors.shape[1],
+        )
+        matching_vector_pairwise_similarity = torch.abs(
+            base.left_vectors[:, :effective_top_k].T
+            @ tuned.left_vectors[:, :effective_top_k]
+        ).clamp(max=1.0)
+        matching_vector_similarities = matching_vector_pairwise_similarity.diag()
+        pairwise_similarities_by_module.setdefault(module_name, []).append(
+            matching_vector_pairwise_similarity
+        )
+        matching_vector_rows.extend(
+            {
+                "model_type": spec.model_type,
+                "checkpoint_name": spec.name,
+                "layer_name": f"layer_{layer_index}",
+                "module_name": module_name,
+                "vector_index": vector_index,
+                "cosine_similarity": float(similarity_value),
+            }
+            for vector_index, similarity_value in enumerate(
+                matching_vector_similarities.tolist(),
+                start=1,
+            )
+        )
         max_similarities = torch.abs(
             tuned.left_vectors[:, :effective_top_k].T @ base.left_vectors
         ).amax(dim=1)
@@ -328,9 +395,27 @@ def analyze_checkpoint(
             f"module={module_name} count={num_intruders}/{effective_top_k}",
             flush=True,
         )
-        del tuned, similarity, max_similarities
+        del tuned, similarity, matching_vector_pairwise_similarity, matching_vector_similarities
+        del max_similarities
         gc.collect()
-    return rows
+    for module_name, pairwise_similarities in pairwise_similarities_by_module.items():
+        mean_pairwise_similarity = torch.stack(pairwise_similarities).mean(dim=0)
+        save_heatmap(
+            mean_pairwise_similarity,
+            heatmap_dir / f"{safe_filename(module_name)}_mean_over_layers.png",
+            (
+                f"{spec.model_type} | {spec.name} | {module_name}\n"
+                f"top {mean_pairwise_similarity.shape[0]} singular vectors, "
+                f"mean over {len(pairwise_similarities)} selected layers"
+            ),
+        )
+    save_layer_averaged_heatmap(
+        matching_vector_rows,
+        args.modules,
+        heatmap_dir / "matching_vectors_mean_over_layers.png",
+        f"{spec.model_type} | {spec.name} | mean over {len(args.layers)} selected layers",
+    )
+    return rows, matching_vector_rows
 
 
 def save_results_csv(rows: list[dict[str, object]], output_path: Path) -> None:
@@ -347,6 +432,42 @@ def save_results_csv(rows: list[dict[str, object]], output_path: Path) -> None:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def save_matching_vector_csv(rows: list[dict[str, object]], output_path: Path) -> None:
+    fieldnames = [
+        "model_type",
+        "checkpoint_name",
+        "module_name",
+        "vector_index",
+        "mean_cosine_similarity",
+        "num_layers",
+    ]
+    grouped: dict[tuple[object, ...], list[float]] = {}
+    for row in rows:
+        key = (
+            row["model_type"],
+            row["checkpoint_name"],
+            row["module_name"],
+            row["vector_index"],
+        )
+        grouped.setdefault(key, []).append(float(row["cosine_similarity"]))
+
+    averaged_rows = [
+        {
+            "model_type": key[0],
+            "checkpoint_name": key[1],
+            "module_name": key[2],
+            "vector_index": key[3],
+            "mean_cosine_similarity": sum(values) / len(values),
+            "num_layers": len(values),
+        }
+        for key, values in sorted(grouped.items())
+    ]
+    with output_path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(averaged_rows)
 
 
 def save_summary_plot(
@@ -420,14 +541,26 @@ def main() -> None:
         release_memory()
 
         rows = []
+        matching_vector_rows = []
         for spec in specs:
             print(f"[load:{spec.model_type}] checkpoint={spec.name} path={spec.path}", flush=True)
             tuned_model = load_model(spec.model_type, args.model_id, spec.path, args, device)
-            rows.extend(analyze_checkpoint(spec, tuned_model, base_spectra, args))
+            checkpoint_rows, checkpoint_matching_vector_rows = analyze_checkpoint(
+                spec,
+                tuned_model,
+                base_spectra,
+                args,
+            )
+            rows.extend(checkpoint_rows)
+            matching_vector_rows.extend(checkpoint_matching_vector_rows)
             del tuned_model
             release_memory()
 
     save_results_csv(rows, args.output_dir / "intruder_counts.csv")
+    save_matching_vector_csv(
+        matching_vector_rows,
+        args.output_dir / "matching_vector_cosine_mean_over_layers.csv",
+    )
     save_summary_plot(rows, specs, args.output_dir / "intruder_summary.png")
     print(f"[done] outputs={args.output_dir}", flush=True)
 
