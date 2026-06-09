@@ -32,8 +32,8 @@ hf auth login
 
 This repo contains the experiment code, but it does not vendor model weights or
 datasets. The first run downloads the configured Hugging Face model and task
-datasets into the local Hugging Face cache, then writes generated experiment
-outputs under `artifacts/`.
+datasets into the local Hugging Face cache, then writes model checkpoints under
+`artifacts/` and eval result summaries under `outputs/`.
 
 ## Commands
 
@@ -66,8 +66,7 @@ Full finetuning run:
 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python3 -m dynamic_lora.continual_full_finetune
 ```
 
-The stacked LoRA run defaults to 2000 train samples per task, 200 eval samples per task, and 10 epochs.
-The full finetuning run defaults to 1000 train samples per task, 100 eval samples per task, and 5 epochs.
+Both the stacked LoRA and full finetuning runs default to 2000 train samples per task, 200 eval samples per task, and 10 epochs.
 
 Quick smoke test:
 
@@ -79,16 +78,23 @@ python3 -m dynamic_lora.continual_lora \
   --output-dir artifacts/dynamic_lora/smoke_test
 ```
 
-Default outputs go to:
+Default model/checkpoint outputs go to:
 
 ```text
 artifacts/dynamic_lora/ag_news_yelp_dbpedia
 ```
 
-Full finetuning outputs go to:
+Full finetuning model/checkpoint outputs go to:
 
 ```text
 artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune
+```
+
+Eval summaries from training go to:
+
+```text
+outputs/ag_news_yelp_dbpedia
+outputs/ag_news_yelp_dbpedia_full_finetune
 ```
 
 ## Evaluation
@@ -106,7 +112,7 @@ Run evaluation on the saved adapter:
 
 ```bash
 python3 -m dynamic_lora.eval_lora \
-  --adapter-dir artifects/ag_news_yelp_dbpedia/final/stack
+  --adapter-dir artifacts/dynamic_lora/ag_news_yelp_dbpedia/final/stack
 ```
 
 Common eval args:
@@ -121,10 +127,10 @@ Common eval args:
 --max-length
 ```
 
-By default this writes fresh eval outputs next to the run:
+By default this writes fresh eval outputs to:
 
 ```text
-artifects/ag_news_yelp_dbpedia/eval
+outputs/ag_news_yelp_dbpedia/eval
 ```
 
 The current eval path does not compute perplexity, validation loss, or
@@ -192,6 +198,12 @@ and writes outputs to:
 
 ```text
 artifacts/dynamic_lora/unlearn/<unlearn-task>
+```
+
+Unlearning eval summaries go to:
+
+```text
+outputs/unlearn/<unlearn-task>
 ```
 
 The unlearning objective is:

@@ -24,6 +24,7 @@ from dynamic_lora.core.adapters import (  # noqa: E402
     set_only_adapter_trainable,
 )
 from dynamic_lora.core.constants import (  # noqa: E402
+    DEFAULT_EVAL_OUTPUT_ROOT,
     DEFAULT_LEARNING_RATE,
     DEFAULT_ORTHOGONAL_PENALTY_WEIGHT,
     DEFAULT_STACKED_ADAPTER_DIR,
@@ -475,6 +476,8 @@ def main() -> None:
     if not args.enable_orthogonal_penalty and "no_orthogonal" not in output_dir.name:
         output_dir = output_dir.parent / f"{output_dir.name}_no_orthogonal"
     output_dir.mkdir(parents=True, exist_ok=True)
+    eval_output_dir = Path(DEFAULT_EVAL_OUTPUT_ROOT) / "unlearn" / output_dir.name
+    eval_output_dir.mkdir(parents=True, exist_ok=True)
     stacked_adapter_dir = Path(args.stacked_adapter_dir)
     if not stacked_adapter_dir.exists():
         raise SystemExit(f"Stacked adapter directory not found: {stacked_adapter_dir}")
@@ -546,9 +549,9 @@ def main() -> None:
         quick_eval_datasets=quick_eval_datasets,
         max_new_tokens=args.max_new_tokens,
     )
-    save_json(output_dir / "pre_eval_results.json", pre_eval_results)
+    save_json(eval_output_dir / "pre_eval_results.json", pre_eval_results)
     pre_unlearn_eval_results = task_eval_result_from_quick_eval(pre_eval_results, args.unlearn_task)
-    save_json(output_dir / "pre_unlearn_task_eval_results.json", pre_unlearn_eval_results)
+    save_json(eval_output_dir / "pre_unlearn_task_eval_results.json", pre_unlearn_eval_results)
 
     set_global_seed(args.train_seed)
     train_adapter_name = unlearn_adapter_name(args.unlearn_task)
@@ -628,7 +631,7 @@ def main() -> None:
         quick_eval_datasets=quick_eval_datasets,
         max_new_tokens=args.max_new_tokens,
     )
-    save_json(output_dir / "post_eval_results.json", post_eval_results)
+    save_json(eval_output_dir / "post_eval_results.json", post_eval_results)
     post_unlearn_train_eval_results = evaluate_unlearn_split(
         tokenizer=tokenizer,
         model=final_model,
@@ -639,9 +642,9 @@ def main() -> None:
         active_adapters=STACK_ADAPTER_NAME,
         split_name="train",
     )
-    save_json(output_dir / "post_unlearn_task_train_eval_results.json", post_unlearn_train_eval_results)
+    save_json(eval_output_dir / "post_unlearn_task_train_eval_results.json", post_unlearn_train_eval_results)
     post_unlearn_eval_results = task_eval_result_from_quick_eval(post_eval_results, args.unlearn_task)
-    save_json(output_dir / "post_unlearn_task_eval_results.json", post_unlearn_eval_results)
+    save_json(eval_output_dir / "post_unlearn_task_eval_results.json", post_unlearn_eval_results)
 
     final_dir = output_dir / "final"
     final_dir.mkdir(parents=True, exist_ok=True)
@@ -684,7 +687,7 @@ def main() -> None:
     }
     save_json(output_dir / "experiment_metadata.json", summary)
 
-    with (output_dir / "eval_summary.txt").open("w", encoding="utf-8") as file:
+    with (eval_output_dir / "eval_summary.txt").open("w", encoding="utf-8") as file:
         file.write("[pre_unlearning]\n")
         for row in pre_eval_results:
             file.write(
@@ -721,6 +724,7 @@ def main() -> None:
 
     del final_model
     release_memory()
+    print(f"[eval:outputs] path={eval_output_dir}")
     print(f"[done] outputs -> {output_dir}")
 
 

@@ -1,5 +1,15 @@
 from pathlib import Path
 
+from dynamic_lora.core.constants import DEFAULT_EVAL_OUTPUT_ROOT
+
+
+def eval_output_dir_for_run(run_output_dir: Path | str) -> Path:
+    return Path(DEFAULT_EVAL_OUTPUT_ROOT) / Path(run_output_dir).name
+
+
+def eval_output_dir_for_checkpoint(run_output_dir: Path | str, checkpoint_name: str) -> Path:
+    return eval_output_dir_for_run(run_output_dir) / checkpoint_name
+
 
 def build_task_eval_summary(
     learned_task_eval_results: list[dict],
