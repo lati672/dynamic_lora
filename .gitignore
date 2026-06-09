@@ -14,7 +14,5 @@ env/
 .ipynb_checkpoints/
 
 artifacts/
-output/
 outputs/*
-!outputs/ag_news_yelp_dbpedia/
-!outputs/ag_news_yelp_dbpedia/**
+
