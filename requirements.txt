@@ -5,3 +5,4 @@ peft
 accelerate
 huggingface_hub
 safetensors
+matplotlib

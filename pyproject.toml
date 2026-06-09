@@ -16,6 +16,7 @@ dependencies = [
     "accelerate",
     "huggingface_hub",
     "safetensors",
+    "matplotlib",
 ]
 
 [tool.setuptools]

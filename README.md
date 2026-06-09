@@ -37,11 +37,12 @@ outputs under `artifacts/`.
 
 ## Commands
 
-There are three CLI entry points:
+There are four CLI entry points:
 
 - `python3 -m dynamic_lora.continual_lora` for continual learning
 - `python3 -m dynamic_lora.unlearn` for DPO unlearning of any learned task
 - `python3 -m dynamic_lora.eval_lora` for evaluating a saved stacked LoRA adapter
+- `python3 -m dynamic_lora.spectral_analysis` for singular-vector/intruder analysis
 
 Run commands from the repository root after `python3 -m pip install -e .`.
 
@@ -128,6 +129,28 @@ artifects/ag_news_yelp_dbpedia/eval
 
 The current eval path does not compute perplexity, validation loss, or
 logits-based classification.
+
+## Spectral Analysis
+
+Compare full-model and merged LoRA checkpoints against the pretrained base model:
+
+```bash
+python3 -m dynamic_lora.spectral_analysis \
+  --model-id meta-llama/Llama-3.2-1B-Instruct \
+  --layers 0,8,15 \
+  --modules q_proj,v_proj,up_proj,down_proj \
+  --lora-checkpoint after_ag_news=artifects/ag_news_yelp_dbpedia/task_0_ag_news \
+  --lora-checkpoint after_ag_news_yelp=artifects/ag_news_yelp_dbpedia/task_1_yelp_review_full \
+  --lora-checkpoint after_all=artifects/ag_news_yelp_dbpedia/task_2_dbpedia_14 \
+  --full-checkpoint after_ag_news=artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/task_0_ag_news_full \
+  --full-checkpoint after_ag_news_yelp=artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/task_1_yelp_review_full_full \
+  --full-checkpoint after_all=artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/task_2_dbpedia_14_full
+```
+
+Checkpoint arguments are repeatable and their order defines continual-learning
+stage order. A LoRA path can point directly to an adapter or to a stage directory
+containing `stack/`. Outputs include per-matrix heatmaps, `intruder_counts.csv`,
+and `intruder_summary.png`.
 
 Sampled datasets are cached under:
 
