@@ -1,4 +1,5 @@
 import argparse
+import csv
 import os
 import sys
 from pathlib import Path
@@ -23,7 +24,7 @@ from dynamic_lora.core.constants import (
 )  # noqa: E402
 from dynamic_lora.core.data_pipeline import build_question, label_text, load_or_create_subset, task_spec  # noqa: E402
 from dynamic_lora.core.eval_pipeline import evaluate_task_sequence  # noqa: E402
-from dynamic_lora.core.io_utils import save_json  # noqa: E402
+from dynamic_lora.core.io_utils import release_memory, save_json  # noqa: E402
 from dynamic_lora.core.lora_app.config import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_GRADIENT_ACCUMULATION_STEPS,
@@ -44,6 +45,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model-id", default=MODEL_ID)
     parser.add_argument("--adapter-dir", default=DEFAULT_STACKED_ADAPTER_DIR)
     parser.add_argument("--model-dir", default=f"{DEFAULT_CONTINUAL_FULL_OUTPUT_DIR}/final")
+    parser.add_argument(
+        "--all-checkpoints",
+        action="store_true",
+        help="Evaluate the after-AG-News, after-Yelp, and after-DBPedia checkpoints on all three tasks.",
+    )
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--eval-samples-per-task", type=int, default=None)
     parser.add_argument("--eval-seed", type=int, default=123)
@@ -95,6 +101,25 @@ def write_eval_results_txt(path: Path, eval_results: list[dict], header: str) ->
             )
 
 
+def write_accuracy_matrix_csv(path: Path, checkpoint_results: list[dict]) -> None:
+    fieldnames = ["checkpoint", "after_task", *DEFAULT_TASKS]
+    with path.open("w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames, lineterminator="\n")
+        writer.writeheader()
+        for checkpoint_result in checkpoint_results:
+            accuracies = {
+                row["task_name"]: row["accuracy"]
+                for row in checkpoint_result["task_eval_results"]
+            }
+            writer.writerow(
+                {
+                    "checkpoint": checkpoint_result["checkpoint"],
+                    "after_task": checkpoint_result["after_task"],
+                    **accuracies,
+                }
+            )
+
+
 def set_active_full_model(*args, **kwargs) -> None:
     return None
 
@@ -117,6 +142,131 @@ def load_full_model(model_dir: Path, token: str | None):
     return tokenizer, model
 
 
+def continual_run_root(mode: str, source_dir: Path) -> Path:
+    if mode == "lora" and source_dir.name == STACK_ADAPTER_NAME:
+        source_dir = source_dir.parent
+    if source_dir.name == "final" or source_dir.name.startswith("task_"):
+        return source_dir.parent
+    return source_dir
+
+
+def continual_checkpoint_specs(mode: str, run_root: Path) -> list[tuple[str, str, Path]]:
+    checkpoint_names = (
+        ("after_ag_news", "ag_news", "task_0_ag_news"),
+        ("after_yelp_review_full", "yelp_review_full", "task_1_yelp_review_full"),
+        ("after_dbpedia_14", "dbpedia_14", "task_2_dbpedia_14"),
+    )
+    specs = []
+    for checkpoint_label, task_name, checkpoint_name in checkpoint_names:
+        if mode == "full":
+            checkpoint_name = f"{checkpoint_name}_full"
+        checkpoint_dir = run_root / checkpoint_name
+        if mode == "lora":
+            checkpoint_dir = checkpoint_dir / STACK_ADAPTER_NAME
+        specs.append((checkpoint_label, task_name, checkpoint_dir))
+    return specs
+
+
+def build_eval_config(args: argparse.Namespace, model_id: str, output_dir: Path) -> TrainingConfig:
+    return TrainingConfig(
+        model_id=model_id,
+        output_dir=str(output_dir),
+        dataset_id="continual_classification",
+        dataset_subset="+".join(DEFAULT_TASKS),
+        dataset_split="test",
+        max_length=args.max_length,
+        batch_size=args.batch_size,
+        gradient_accumulation_steps=args.gradient_accumulation_steps,
+        weight_decay=args.weight_decay,
+        warmup_epochs=args.warmup_epochs,
+    )
+
+
+def evaluate_all_checkpoints(
+    args: argparse.Namespace,
+    source_dir: Path,
+    eval_samples_per_task: int,
+    token: str | None,
+) -> None:
+    run_root = continual_run_root(args.mode, source_dir)
+    checkpoint_specs = continual_checkpoint_specs(args.mode, run_root)
+    missing = [str(checkpoint_dir) for _, _, checkpoint_dir in checkpoint_specs if not checkpoint_dir.exists()]
+    if missing:
+        raise SystemExit(f"Checkpoint directories not found: {', '.join(missing)}")
+
+    output_dir = (
+        Path(args.output_dir)
+        if args.output_dir is not None
+        else Path(DEFAULT_EVAL_OUTPUT_ROOT) / run_root.name / "eval_all_checkpoints"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    eval_datasets = load_eval_datasets(eval_samples_per_task, args.eval_seed)
+    checkpoint_results = []
+
+    for checkpoint_label, after_task, checkpoint_dir in checkpoint_specs:
+        model_id = args.model_id if args.mode == "lora" else str(checkpoint_dir)
+        config = build_eval_config(args, model_id, output_dir)
+        print(
+            f"[checkpoint:start] checkpoint={checkpoint_label} after_task={after_task} source={checkpoint_dir}",
+            flush=True,
+        )
+        if args.mode == "lora":
+            tokenizer, base_model = load_base_model(config, token)
+            model = PeftModel.from_pretrained(
+                base_model,
+                str(checkpoint_dir),
+                adapter_name=STACK_ADAPTER_NAME,
+            )
+            stack_adapter_name = STACK_ADAPTER_NAME
+            set_active = set_active_adapters
+        else:
+            tokenizer, model = load_full_model(checkpoint_dir, token)
+            stack_adapter_name = "full_model"
+            set_active = set_active_full_model
+
+        eval_results = evaluate_task_sequence(
+            tokenizer=tokenizer,
+            model=model,
+            config=config,
+            task_names=DEFAULT_TASKS,
+            eval_datasets=eval_datasets,
+            max_new_tokens=args.max_new_tokens,
+            stack_adapter_name=stack_adapter_name,
+            build_question=build_question,
+            label_text=label_text,
+            task_spec=task_spec,
+            set_active_adapters=set_active,
+        )
+        checkpoint_results.append(
+            {
+                "checkpoint": checkpoint_label,
+                "after_task": after_task,
+                "source_dir": str(checkpoint_dir),
+                "task_eval_results": eval_results,
+            }
+        )
+        save_json(output_dir / f"{checkpoint_label}_eval_results.json", eval_results)
+        print(f"[checkpoint:done] checkpoint={checkpoint_label}", flush=True)
+        del model, tokenizer
+        if args.mode == "lora":
+            del base_model
+        release_memory()
+
+    summary = {
+        "experiment": f"{args.mode}_all_checkpoints_eval",
+        "mode": args.mode,
+        "run_root": str(run_root),
+        "tasks": list(DEFAULT_TASKS),
+        "eval_samples_per_task": eval_samples_per_task,
+        "eval_seed": args.eval_seed,
+        "max_new_tokens": args.max_new_tokens,
+        "checkpoint_results": checkpoint_results,
+    }
+    save_json(output_dir / "all_checkpoint_eval_results.json", summary)
+    write_accuracy_matrix_csv(output_dir / "accuracy_matrix.csv", checkpoint_results)
+    print(f"[done] outputs -> {output_dir}", flush=True)
+
+
 def main() -> None:
     args = parse_args()
     eval_samples_per_task = args.eval_samples_per_task
@@ -136,21 +286,14 @@ def main() -> None:
         output_dir = Path(args.output_dir) if args.output_dir is not None else default_full_output_dir(source_dir)
         model_id = str(source_dir)
 
-    output_dir.mkdir(parents=True, exist_ok=True)
-    config = TrainingConfig(
-        model_id=model_id,
-        output_dir=str(output_dir),
-        dataset_id="continual_classification",
-        dataset_subset="+".join(DEFAULT_TASKS),
-        dataset_split="test",
-        max_length=args.max_length,
-        batch_size=args.batch_size,
-        gradient_accumulation_steps=args.gradient_accumulation_steps,
-        weight_decay=args.weight_decay,
-        warmup_epochs=args.warmup_epochs,
-    )
-
     token = os.environ.get("HF_TOKEN")
+    if args.all_checkpoints:
+        evaluate_all_checkpoints(args, source_dir, eval_samples_per_task, token)
+        return
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config = build_eval_config(args, model_id, output_dir)
+
     if args.mode == "lora":
         print(f"[model:start] mode=lora model={args.model_id} adapter={source_dir}", flush=True)
         tokenizer, base_model = load_base_model(config, token)

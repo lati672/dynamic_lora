@@ -1,0 +1,4 @@
+checkpoint,after_task,ag_news,yelp_review_full,dbpedia_14
+after_ag_news,ag_news,0.925,0.565,0.11
+after_yelp_review_full,yelp_review_full,0.9,0.585,0.14
+after_dbpedia_14,dbpedia_14,0.83,0.54,0.935

@@ -1,0 +1,4 @@
+variant,scale,ag_news,yelp_review_full,dbpedia_14
+pre_eval,,0.83,0.545,0.935
+scale_0.5,0.5,0.79,0.66,0.88
+scale_0.1,0.1,0.775,0.605,0.785

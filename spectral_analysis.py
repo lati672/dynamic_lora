@@ -97,7 +97,7 @@ def parse_args() -> argparse.Namespace:
         metavar="NAME=PATH",
         help="PEFT adapter checkpoint. Repeat in continual-learning stage order.",
     )
-    parser.add_argument("--modules", type=parse_csv_strings, default=("q_proj", "v_proj", "up_proj", "down_proj"))
+    parser.add_argument("--modules", type=parse_csv_strings, default=("q_proj", "v_proj"))
     parser.add_argument("--layers", type=parse_layer_indices, default=(0,), help="Comma-separated layer indices.")
     parser.add_argument(
         "--top-k",
@@ -106,7 +106,7 @@ def parse_args() -> argparse.Namespace:
         help="Number of leading tuned singular vectors used for intruder and matching-vector analysis.",
     )
     parser.add_argument("--threshold", type=float, default=0.5)
-    parser.add_argument("--output-dir", type=Path, default=Path("outputs/spectral_analysis"))
+    parser.add_argument("--output-dir", type=Path, default=Path("figures/spectral_analysis"))
     parser.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto")
     parser.add_argument(
         "--load-dtype",

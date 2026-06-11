@@ -37,19 +37,21 @@ datasets into the local Hugging Face cache, then writes model checkpoints under
 
 ## Commands
 
-There are five CLI entry points:
+There are six CLI entry points:
 
 - `python3 -m dynamic_lora.continual_lora` for continual learning
 - `python3 -m dynamic_lora.unlearn` for DPO unlearning of any learned task
 - `python3 -m dynamic_lora.eval_lora` for evaluating a saved stacked LoRA adapter
 - `python3 -m dynamic_lora.spectral_analysis` for singular-vector/intruder analysis
+- `python3 -m dynamic_lora.intruder_scale_eval` for scaling LoRA-update intruder singular vectors
 - `python3 -m dynamic_lora.load_hf_model` for loading an artifact from Hugging Face
 
 Run commands from the repository root after `python3 -m pip install -e .`.
 
 ## Layout
 
-- `continual_lora.py`, `continual_full_finetune.py`, `eval_lora.py`, `unlearn.py`: CLI entry points
+- `continual_lora.py`, `continual_full_finetune.py`, `eval_lora.py`,
+  `intruder_scale_eval.py`, `unlearn.py`: CLI entry points
 - `core/`: experiment implementation
 - `requirements.txt`, `pyproject.toml`: Python dependency and package metadata
 
@@ -144,12 +146,48 @@ By default this writes fresh eval outputs to:
 outputs/ag_news_yelp_dbpedia/eval
 ```
 
+Evaluate the three continual full-model checkpoints after AG News, Yelp, and
+DBPedia on all three datasets:
+
+```bash
+python3 -m dynamic_lora.eval_lora \
+  --mode full \
+  --all-checkpoints \
+  --model-dir artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune
+```
+
+This writes the 3-by-3 accuracy matrix to:
+
+```text
+outputs/ag_news_yelp_dbpedia_full_finetune/eval_all_checkpoints/accuracy_matrix.csv
+```
+
+Use `--mode lora --all-checkpoints` with the stacked-LoRA run directory to
+produce the same matrix for LoRA checkpoints.
+
 The current eval path does not compute perplexity, validation loss, or
 logits-based classification.
 
 ## Load Models From Hugging Face
 
-The artifact repo is `Kt672/artifacts`. Load the final continual stacked-LoRA
+The artifact repo is `Kt672/dynamic_lora`. Download all continual stacked-LoRA
+checkpoints into their expected local paths:
+
+```bash
+hf download Kt672/dynamic_lora \
+  --include "artifacts/dynamic_lora/ag_news_yelp_dbpedia/**" \
+  --local-dir .
+```
+
+Download all continual full-finetuned checkpoints:
+
+```bash
+hf download Kt672/dynamic_lora \
+  --include "artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/**" \
+  --local-dir .
+```
+
+Load the final continual stacked-LoRA
 model, including its pretrained base model:
 
 ```bash
@@ -177,7 +215,7 @@ tokenizer, full_model = load_hf_continual_model("full")
 
 Use `subfolder=` to load an intermediate continual-learning checkpoint. For
 LoRA, provide the checkpoint folder containing `stack/`, such as
-`dynamic_lora/ag_news_yelp_dbpedia/task_1_yelp_review_full`.
+`artifacts/dynamic_lora/ag_news_yelp_dbpedia/task_1_yelp_review_full`.
 
 ## Spectral Analysis
 
@@ -191,7 +229,7 @@ python3 spectral_analysis.py \
   --model-id meta-llama/Llama-3.2-1B-Instruct \
   --layers 0,8,15 \
   --top-k 20 \
-  --modules q_proj,v_proj,up_proj,down_proj \
+  --modules q_proj,v_proj \
   --lora-checkpoint after_ag_news=artifacts/dynamic_lora/ag_news_yelp_dbpedia/task_0_ag_news \
   --lora-checkpoint after_ag_news_yelp=artifacts/dynamic_lora/ag_news_yelp_dbpedia/task_1_yelp_review_full \
   --lora-checkpoint after_all=artifacts/dynamic_lora/ag_news_yelp_dbpedia/task_2_dbpedia_14 \
@@ -200,9 +238,35 @@ python3 spectral_analysis.py \
   --full-checkpoint after_all=artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/task_2_dbpedia_14_full
 ```
 
+Run the after-AG-News LoRA and full-model analyses separately so none of their
+summary files or heatmaps overwrite each other:
+
+```bash
+python3 -m dynamic_lora.spectral_analysis \
+  --model-id meta-llama/Llama-3.2-1B-Instruct \
+  --lora-checkpoint lora_after_ag=artifacts/dynamic_lora/ag_news_yelp_dbpedia/task_0_ag_news \
+  --layers 0,8,15 \
+  --output-dir ./figures/spectral_analysis/lora_after_ag
+
+python3 -m dynamic_lora.spectral_analysis \
+  --model-id meta-llama/Llama-3.2-1B-Instruct \
+  --full-checkpoint full_after_ag=artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/task_0_ag_news_full \
+  --layers 0,8,15 \
+  --output-dir ./figures/spectral_analysis/full_after_ag
+```
+
+These commands compare each checkpoint independently against the same
+pretrained base model and write their outputs under:
+
+```text
+figures/spectral_analysis/lora_after_ag/
+figures/spectral_analysis/full_after_ag/
+```
+
 Checkpoint arguments are repeatable and their order defines continual-learning
 stage order. A LoRA path can point directly to an adapter or to a stage directory
-containing `stack/`. Outputs include per-matrix heatmaps, `intruder_counts.csv`,
+containing `stack/`. Spectral analysis defaults to the trained `q_proj` and
+`v_proj` modules; use `--modules` to override them. Outputs include per-matrix heatmaps, `intruder_counts.csv`,
 `intruder_summary.png`, and `matching_vector_cosine_mean_over_layers.csv`.
 Each checkpoint also gets a `matching_vectors_mean_over_layers.png` heatmap,
 which compares each of the top matching singular-vector pairs and averages
@@ -211,8 +275,52 @@ their absolute cosine similarities across the selected layers. Per-module
 pairwise cosine-similarity matrix averaged across the selected layers. All
 heatmaps use the size selected by `--top-k`, which defaults to 20. By default,
 the outputs are written under
-`outputs/spectral_analysis/` relative to the repository directory. Use
+`figures/spectral_analysis/` relative to the repository directory. Use
 `--output-dir PATH` to choose a different location.
+
+## Intruder Scaling Evaluation
+
+Analyze the LoRA update after DBPedia across every layer and its trained
+`q_proj,v_proj` modules. Intruder singular values are
+multiplied by `0.5` and `0.1`; each modified update is reconstructed and added
+back to the pretrained base weights before evaluation on all three datasets.
+The original merged LoRA model is also evaluated first as the `pre_eval`
+baseline:
+
+```bash
+python3 -m dynamic_lora.intruder_scale_eval \
+  --adapter-dir artifacts/dynamic_lora/ag_news_yelp_dbpedia/task_2_dbpedia_14 \
+  --modules q_proj,v_proj \
+  --top-k 20 \
+  --threshold 0.5 \
+  --scales 0.5,0.1 \
+  --output-dir outputs/intruder_scale_eval/lora_after_dbpedia
+```
+
+The reconstruction for each updated matrix is:
+
+```text
+DeltaW = U Sigma V^T
+DeltaW_scaled = U Sigma_scaled V^T
+W_scaled = W0 + DeltaW_scaled
+```
+
+The downloaded LoRA checkpoint targets only `q_proj` and `v_proj`, so untrained
+modules are excluded from this analysis.
+
+Outputs include:
+
+```text
+outputs/intruder_scale_eval/lora_after_dbpedia/module_summary.csv
+outputs/intruder_scale_eval/lora_after_dbpedia/intruder_vectors.csv
+outputs/intruder_scale_eval/lora_after_dbpedia/accuracy_by_scale.csv
+outputs/intruder_scale_eval/lora_after_dbpedia/results.json
+```
+
+`accuracy_by_scale.csv` contains one row each for `pre_eval`, `scale_0.5`, and
+`scale_0.1`, with their AG News, Yelp, and DBPedia accuracies.
+
+Add `--save-models` to also save each reconstructed full model.
 
 Sampled datasets are cached under:
 

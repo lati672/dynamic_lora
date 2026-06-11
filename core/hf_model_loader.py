@@ -4,9 +4,9 @@ import torch
 from peft import PeftConfig, PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-DEFAULT_HF_REPO_ID = "Kt672/artifacts"
-DEFAULT_HF_LORA_SUBFOLDER = "dynamic_lora/ag_news_yelp_dbpedia/final"
-DEFAULT_HF_FULL_SUBFOLDER = "dynamic_lora/ag_news_yelp_dbpedia_full_finetune/final"
+DEFAULT_HF_REPO_ID = "Kt672/dynamic_lora"
+DEFAULT_HF_LORA_SUBFOLDER = "artifacts/dynamic_lora/ag_news_yelp_dbpedia/final"
+DEFAULT_HF_FULL_SUBFOLDER = "artifacts/dynamic_lora/ag_news_yelp_dbpedia_full_finetune/final"
 
 
 def _load_kwargs(token: str | None) -> dict:

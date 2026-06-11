@@ -14,5 +14,6 @@ env/
 .ipynb_checkpoints/
 
 artifacts/
-outputs/*
-
+outputs/**
+!outputs/**/
+!outputs/**/*.csv
