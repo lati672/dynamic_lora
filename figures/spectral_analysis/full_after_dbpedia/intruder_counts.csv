@@ -1,0 +1,13 @@
+model_type,checkpoint_name,layer_name,module_name,top_k,threshold,num_intruders
+full,full_after_dbpedia,layer_0,down_proj,20,0.5,0
+full,full_after_dbpedia,layer_0,q_proj,20,0.5,0
+full,full_after_dbpedia,layer_0,up_proj,20,0.5,0
+full,full_after_dbpedia,layer_0,v_proj,20,0.5,0
+full,full_after_dbpedia,layer_8,down_proj,20,0.5,0
+full,full_after_dbpedia,layer_8,q_proj,20,0.5,0
+full,full_after_dbpedia,layer_8,up_proj,20,0.5,0
+full,full_after_dbpedia,layer_8,v_proj,20,0.5,0
+full,full_after_dbpedia,layer_15,down_proj,20,0.5,0
+full,full_after_dbpedia,layer_15,q_proj,20,0.5,0
+full,full_after_dbpedia,layer_15,up_proj,20,0.5,0
+full,full_after_dbpedia,layer_15,v_proj,20,0.5,0
