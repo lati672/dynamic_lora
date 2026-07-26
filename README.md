@@ -381,3 +381,48 @@ DPO loss
 
 `x_retain` is sampled from tasks learned before `--unlearn-task`. For example, unlearning
 `dbpedia_14` samples retain examples from `ag_news` and `yelp_review_full`.
+
+# Original-paper continual-learning task sequence
+
+The isolated `original_paper_experiment` module reproduces the small-scale task
+sequence MNLI → QQP → SST-2 → SIQA → WinoGrande → FEVER with a shared encoder,
+one classification head per task, full-model continual fine-tuning, and additive
+stacked LoRA. Samples and their source indices are cached under
+`sampled_data/`. Malformed or unlabelled source rows are skipped with warnings.
+
+```bash
+python run_original_paper_cl_experiment.py \
+  --model_name roberta-base \
+  --output_dir outputs/original_paper_tasks \
+  --train_samples_per_task 1000 --eval_samples_per_task 500 \
+  --task_sequence mnli qqp sst2 siqa winogrande fever \
+  --methods full stacked_lora \
+  --lora_rank 8 --lora_alpha 32 --lora_dropout 0.05 \
+  --epochs 3 --batch_size 8 --learning_rate 2e-5 --seed 42
+```
+
+For stacked LoRA, `--adapter_eval_mode all` evaluates with every adapter learned
+up to that stage active. `--adapter_eval_mode task_specific` activates only the
+adapter belonging to the evaluation task. Training always activates the
+previous frozen adapters plus the new trainable adapter, implementing
+`W0 + Σ ΔWi`. Each task head is used only for its own task.
+
+Run SVD analysis after training (CPU float32 SVD is used even when training used
+CUDA):
+
+```bash
+python analyze_original_paper_intruders.py \
+  --base_model roberta-base \
+  --checkpoints_dir outputs/original_paper_tasks \
+  --methods full stacked_lora \
+  --layers 0 6 11 \
+  --modules attention.self.query attention.self.value intermediate.dense output.dense \
+  --top_k 50 --epsilon 0.5 --adapter_eval_mode all
+
+python plot_original_paper_results.py \
+  --output_dir outputs/original_paper_tasks
+```
+
+Run the analysis again with `--adapter_eval_mode task_specific` to compare
+modes. Each mode has its own cache, and `intruder_counts.csv` combines all
+completed modes for plotting. `--overwrite` recomputes only the selected mode.
