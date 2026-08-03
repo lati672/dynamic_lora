@@ -166,10 +166,10 @@ def main() -> None:
     (args.output_dir / "config.json").write_text(json.dumps(vars(args) | {"output_dir": str(args.output_dir)}, indent=2) + "\n")
     data = load_and_sample_tasks(args.task_sequence, args.train_samples_per_task, args.eval_samples_per_task,
                                  args.seed, args.output_dir / "sampled_data")
+    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[run] device={device} tasks={args.task_sequence} methods={args.methods}", flush=True)
     for method in args.methods:

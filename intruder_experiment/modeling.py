@@ -36,6 +36,7 @@ class AdditiveLoRALinear(nn.Module):
                               "B": nn.Linear(self.rank, self.base.out_features, bias=False)})
         nn.init.kaiming_uniform_(pair["A"].weight, a=math.sqrt(5))
         nn.init.zeros_(pair["B"].weight)
+        pair.to(device=self.base.weight.device, dtype=self.base.weight.dtype)
         self.adapters[name] = pair
 
     def forward(self, inputs: torch.Tensor) -> torch.Tensor:
@@ -71,7 +72,8 @@ class ContinualClassifier(nn.Module):
             last_token = attention_mask.sum(dim=1).sub(1).clamp_min(0)
             batch = torch.arange(output.last_hidden_state.shape[0], device=last_token.device)
             pooled = output.last_hidden_state[batch, last_token]
-        return self.heads[task](pooled)
+        head = self.heads[task]
+        return head(pooled.to(dtype=head.weight.dtype))
 
     def install_lora(self, target_suffixes: list[str], rank: int, alpha: float, dropout: float) -> None:
         replacements = []

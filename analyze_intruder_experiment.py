@@ -25,7 +25,7 @@ from dynamic_lora.intruder_experiment.modeling import (
     matches_target,
 )
 
-LAYER_RE = re.compile(r"(?:^|\.)layer\.(\d+)(?:\.|$)")
+LAYER_RE = re.compile(r"(?:^|\.)layers?\.(\d+)(?:\.|$)")
 
 
 def arguments():
@@ -83,9 +83,12 @@ def main():
     with torch.no_grad():
         base = AutoModel.from_pretrained(args.base_model)
         base_matrices = matrices(base, args.layers, args.modules)
+        if not base_matrices:
+            raise ValueError(f"No base-model matrices matched layers={args.layers} modules={args.modules}")
         base_u = {key: torch.linalg.svd(weight, full_matrices=False).U for key, weight in base_matrices.items()}
         del base
         rows = []
+        vector_rows = []
         roots = {"full": args.checkpoints_dir / "full_finetune",
                  "stacked_lora": args.checkpoints_dir / "stacked_lora"}
         for method in args.methods:
@@ -103,6 +106,12 @@ def main():
                     k = min(args.top_k, tuned_u.shape[1])
                     similarity = (base_u[(layer, module)].T @ tuned_u[:, :k]).abs()
                     maxima = similarity.max(dim=0).values
+                    vector_rows.extend({
+                        "method": method, "stage": metadata["stage"],
+                        "adapter_eval_mode": args.adapter_eval_mode if method == "stacked_lora" else "n/a",
+                        "layer": layer, "module": module, "vector_index": vector_index,
+                        "max_similarity": max_similarity,
+                    } for vector_index, max_similarity in enumerate(maxima.tolist(), start=1))
                     rows.append({
                         "method": method, "stage": metadata["stage"],
                         "adapter_eval_mode": args.adapter_eval_mode if method == "stacked_lora" else "n/a",
@@ -125,6 +134,12 @@ def main():
         for path in sorted(output.glob("intruder_counts_*.csv")):
             with path.open(newline="") as source:
                 writer.writerows(csv.DictReader(source))
+    vector_path = output / f"vector_similarities_{args.adapter_eval_mode}.csv"
+    vector_fields = ["method", "stage", "adapter_eval_mode", "layer", "module", "vector_index", "max_similarity"]
+    with vector_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=vector_fields)
+        writer.writeheader()
+        writer.writerows(vector_rows)
     print(f"[done] wrote {mode_path} and combined {csv_path}")
 
 
