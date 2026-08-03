@@ -18,15 +18,36 @@ class TaskSpec:
     num_labels: int
     train_splits: tuple[str, ...] = ("train",)
     eval_splits: tuple[str, ...] = ("validation", "test")
+    data_files: dict[str, str] | None = None
+
+
+_PARQUET_ROOT = "https://huggingface.co/datasets/{repo}/resolve/refs%2Fconvert%2Fparquet/{path}/0000.parquet"
+
+
+def _parquet_files(repo: str, config: str, *splits: str) -> dict[str, str]:
+    return {
+        split: _PARQUET_ROOT.format(repo=repo, path=f"{config}/{split}")
+        for split in splits
+    }
 
 
 TASK_SPECS = {
-    "mnli": TaskSpec("glue", "mnli", 3, eval_splits=("validation_matched", "validation_mismatched")),
-    "qqp": TaskSpec("glue", "qqp", 2),
-    "sst2": TaskSpec("glue", "sst2", 2),
-    "siqa": TaskSpec("social_i_qa", None, 3),
-    "winogrande": TaskSpec("winogrande", "winogrande_debiased", 2),
-    "fever": TaskSpec("fever", "v1.0", 3),
+    "mnli": TaskSpec("nyu-mll/glue", "mnli", 3, eval_splits=("validation_matched", "validation_mismatched")),
+    "qqp": TaskSpec("nyu-mll/glue", "qqp", 2),
+    "sst2": TaskSpec("nyu-mll/glue", "sst2", 2),
+    "siqa": TaskSpec(
+        "parquet", None, 3,
+        data_files=_parquet_files("allenai/social_i_qa", "default", "train", "validation"),
+    ),
+    "winogrande": TaskSpec(
+        "parquet", None, 2,
+        data_files=_parquet_files("allenai/winogrande", "winogrande_debiased", "train", "validation"),
+    ),
+    "fever": TaskSpec(
+        "parquet", None, 3,
+        eval_splits=("labelled_dev",),
+        data_files=_parquet_files("fever/fever", "v1.0", "train", "labelled_dev"),
+    ),
 }
 
 
@@ -39,7 +60,7 @@ def _first(record: dict[str, Any], *names: str, default: str = "") -> str:
 
 
 def _label(record: dict[str, Any], task: str) -> int | None:
-    raw = record.get("label", record.get("gold_label"))
+    raw = record.get("label", record.get("gold_label", record.get("answer")))
     if raw is None or raw == -1 or str(raw).strip() in {"", "-1"}:
         return None
     if isinstance(raw, int):
@@ -61,15 +82,16 @@ def normalize_example(record: dict[str, Any], task: str) -> dict[str, Any] | Non
     """Convert a source row into ``text, label, task_name`` or skip it with a warning."""
     if task == "mnli":
         a, b = _first(record, "premise"), _first(record, "hypothesis")
-        text = f"Premise: {a}\nHypothesis: {b}\nQuestion: What is the relation between the premise and hypothesis?"
+        text = f"classify the semantic similarity of the text: {a}\n{b}\nresult: "
         required = (a, b)
     elif task == "qqp":
         a, b = _first(record, "question1"), _first(record, "question2")
-        text = f"Question 1: {a}\nQuestion 2: {b}\nAre these questions duplicates?"
+        text = f"classify the semantic similarity of the text: {a}\n{b}\nresult: "
         required = (a, b)
     elif task == "sst2":
         sentence = _first(record, "sentence", "text")
-        text, required = f"Sentence: {sentence}\nSentiment?", (sentence,)
+        text = f"classify the sentiment of the text: {sentence}\nresult: "
+        required = (sentence,)
     elif task == "siqa":
         context, question = _first(record, "context"), _first(record, "question")
         a, b, c = (_first(record, key) for key in ("answerA", "answerB", "answerC"))
@@ -123,7 +145,7 @@ def load_and_sample_task(
 ) -> tuple[Dataset, Dataset]:
     spec = TASK_SPECS[task]
     try:
-        raw = load_dataset(spec.dataset, spec.config) if spec.config else load_dataset(spec.dataset)
+        raw = load_dataset(spec.dataset, spec.config, data_files=spec.data_files)
     except Exception as exc:
         raise RuntimeError(f"Failed to load {task} ({spec.dataset}/{spec.config}): {exc}") from exc
     train_split = _choose_split(raw, spec.train_splits, task, "training")

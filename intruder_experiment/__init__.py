@@ -1,4 +1,4 @@
-"""Continual-learning experiment for the task sequence used by Shuttleworth et al."""
+"""Continual-learning experiment for analyzing intruder dimensions."""
 
 from .data import TASK_SPECS, load_and_sample_tasks
 from .modeling import ContinualClassifier

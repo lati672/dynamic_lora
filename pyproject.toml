@@ -25,5 +25,5 @@ packages = [
     "dynamic_lora",
     "dynamic_lora.core",
     "dynamic_lora.core.lora_app",
-    "dynamic_lora.original_paper_experiment",
+    "dynamic_lora.intruder_experiment",
 ]

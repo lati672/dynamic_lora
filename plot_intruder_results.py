@@ -26,7 +26,7 @@ def save(fig, path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--output_dir", "--output-dir", type=Path, default=Path("outputs/original_paper_tasks"))
+    parser.add_argument("--output_dir", "--output-dir", type=Path, default=Path("outputs/intruder_experiment"))
     args = parser.parse_args()
     plots = args.output_dir / "plots"
     plots.mkdir(parents=True, exist_ok=True)

@@ -12,7 +12,7 @@ from transformers import AutoConfig, AutoModel
 
 
 def matches_target(path: str, target: str) -> bool:
-    """Match a RoBERTa module suffix without conflating its two output.dense paths."""
+    """Match a module suffix without conflating RoBERTa's two output.dense paths."""
     if target == "output.dense":
         return path.endswith(".output.dense") and not path.endswith(".attention.output.dense")
     return path.endswith(target)
@@ -64,9 +64,13 @@ class ContinualClassifier(nn.Module):
 
     def forward(self, task: str, **inputs) -> torch.Tensor:
         output = self.encoder(**inputs)
-        pooled = getattr(output, "pooler_output", None)
-        if pooled is None:
-            pooled = output.last_hidden_state[:, 0]
+        attention_mask = inputs.get("attention_mask")
+        if attention_mask is None:
+            pooled = output.last_hidden_state[:, -1]
+        else:
+            last_token = attention_mask.sum(dim=1).sub(1).clamp_min(0)
+            batch = torch.arange(output.last_hidden_state.shape[0], device=last_token.device)
+            pooled = output.last_hidden_state[batch, last_token]
         return self.heads[task](pooled)
 
     def install_lora(self, target_suffixes: list[str], rank: int, alpha: float, dropout: float) -> None:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Train full-FT and/or additive stacked-LoRA on the original paper task sequence."""
+"""Train full-FT and/or additive stacked-LoRA for the intruder experiment."""
 
 from __future__ import annotations
 
@@ -19,14 +19,14 @@ REPO_PARENT = Path(__file__).resolve().parent.parent
 if str(REPO_PARENT) not in sys.path:
     sys.path.insert(0, str(REPO_PARENT))
 
-from dynamic_lora.original_paper_experiment.data import TASK_SPECS, load_and_sample_tasks
-from dynamic_lora.original_paper_experiment.modeling import ContinualClassifier
+from dynamic_lora.intruder_experiment.data import TASK_SPECS, load_and_sample_tasks
+from dynamic_lora.intruder_experiment.modeling import ContinualClassifier
 
 
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--model_name", "--model-name", default="roberta-base")
-    parser.add_argument("--output_dir", "--output-dir", type=Path, default=Path("outputs/original_paper_tasks"))
+    parser.add_argument("--model_name", "--model-name", default="meta-llama/Llama-3.2-1B-Instruct")
+    parser.add_argument("--output_dir", "--output-dir", type=Path, default=Path("outputs/intruder_experiment"))
     parser.add_argument("--train_samples_per_task", "--train-samples-per-task", type=int, default=1000)
     parser.add_argument("--eval_samples_per_task", "--eval-samples-per-task", type=int, default=500)
     parser.add_argument("--task_sequence", "--task-sequence", nargs="+", default=list(TASK_SPECS))
@@ -36,7 +36,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--lora_alpha", "--lora-alpha", type=float, default=32)
     parser.add_argument("--lora_dropout", "--lora-dropout", type=float, default=0.05)
     parser.add_argument("--target_modules", "--target-modules", nargs="+",
-                        default=["attention.self.query", "attention.self.value", "intermediate.dense", "output.dense"])
+                        default=["q_proj", "v_proj", "up_proj", "down_proj"])
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch_size", "--batch-size", type=int, default=8)
     parser.add_argument("--learning_rate", "--learning-rate", type=float, default=2e-5)
@@ -166,6 +166,9 @@ def main() -> None:
     (args.output_dir / "config.json").write_text(json.dumps(vars(args) | {"output_dir": str(args.output_dir)}, indent=2) + "\n")
     data = load_and_sample_tasks(args.task_sequence, args.train_samples_per_task, args.eval_samples_per_task,
                                  args.seed, args.output_dir / "sampled_data")
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token = tokenizer.eos_token
+    tokenizer.padding_side = "right"
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[run] device={device} tasks={args.task_sequence} methods={args.methods}", flush=True)

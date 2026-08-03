@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""SVD intruder analysis for checkpoints produced by the original-paper experiment."""
+"""SVD analysis for checkpoints produced by the intruder experiment."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ REPO_PARENT = Path(__file__).resolve().parent.parent
 if str(REPO_PARENT) not in sys.path:
     sys.path.insert(0, str(REPO_PARENT))
 
-from dynamic_lora.original_paper_experiment.modeling import (
+from dynamic_lora.intruder_experiment.modeling import (
     AdditiveLoRALinear,
     ContinualClassifier,
     matches_target,
@@ -30,13 +30,13 @@ LAYER_RE = re.compile(r"(?:^|\.)layer\.(\d+)(?:\.|$)")
 
 def arguments():
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--base_model", "--base-model", default="roberta-base")
+    parser.add_argument("--base_model", "--base-model", default="meta-llama/Llama-3.2-1B-Instruct")
     parser.add_argument("--checkpoints_dir", "--checkpoints-dir", type=Path,
-                        default=Path("outputs/original_paper_tasks"))
+                        default=Path("outputs/intruder_experiment"))
     parser.add_argument("--methods", nargs="+", choices=("full", "stacked_lora"), default=["full", "stacked_lora"])
-    parser.add_argument("--layers", nargs="+", type=int, default=[0, 6, 11])
+    parser.add_argument("--layers", nargs="+", type=int, default=[0, 8, 15])
     parser.add_argument("--modules", nargs="+",
-                        default=["attention.self.query", "attention.self.value", "intermediate.dense", "output.dense"])
+                        default=["q_proj", "v_proj", "up_proj", "down_proj"])
     parser.add_argument("--top_k", "--top-k", type=int, default=50)
     parser.add_argument("--epsilon", type=float, default=0.5)
     parser.add_argument("--adapter_eval_mode", "--adapter-eval-mode", choices=("all", "task_specific"), default="all")

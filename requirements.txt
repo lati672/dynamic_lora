@@ -1,6 +1,6 @@
 torch
 transformers
-datasets
+datasets>=3,<6
 peft
 accelerate
 huggingface_hub
