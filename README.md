@@ -386,8 +386,8 @@ DPO loss
 
 The isolated `intruder_experiment` module reproduces the small-scale task
 sequence MNLI → QQP → SST-2 → SIQA → WinoGrande → FEVER with a shared encoder,
-one classification head per task, full-model continual fine-tuning, and additive
-stacked LoRA. Samples and their source indices are cached under
+one classification head per task, full-model continual fine-tuning, a single shared LoRA trained with cross-entropy, and additive stacked LoRA
+with orthogonal loss. Samples and their source indices are cached under
 `sampled_data/`. Malformed or unlabelled source rows are skipped with warnings.
 
 ```bash
@@ -396,16 +396,20 @@ python run_intruder_experiment.py \
   --output_dir outputs/intruder_experiment \
   --train_samples_per_task 1000 --eval_samples_per_task 500 \
   --task_sequence mnli qqp sst2 siqa winogrande fever \
-  --methods full stacked_lora \
-  --lora_rank 8 --lora_alpha 32 --lora_dropout 0.05 \
-  --epochs 3 --batch_size 8 --learning_rate 2e-5 --seed 42
+  --methods full single_lora stacked_lora \
+  --rank=16 --lora_alpha 32 --lora_dropout 0.05 \
+  --orthogonal_penalty_weight 0.1 --orthogonal_penalty_type effective_update \
+  --orthogonal_schedule linear --adapter_eval_mode learned_gates \
+  --epochs 10 --batch_size 8 --learning_rate 2e-5 --seed 42
 ```
 
-For stacked LoRA, `--adapter_eval_mode all` evaluates with every adapter learned
-up to that stage active. `--adapter_eval_mode task_specific` activates only the
-adapter belonging to the evaluation task. Training always activates the
-previous frozen adapters plus the new trainable adapter, implementing
-`W0 + Σ ΔWi`. Each task head is used only for its own task.
+For `single_lora`, one shared adapter is updated throughout the task sequence
+using cross-entropy only.
+For stacked LoRA, the integrated default uses rank 16, a linearly ramped weight
+of 0.1, and squared Frobenius-cosine orthogonality between effective `BA`
+updates. Learned task gates mix the adapters available when each task is trained;
+the gate, task head, and previous adapters are then frozen, preventing later tasks
+from changing that task’s inference path.
 
 Run SVD analysis after training (CPU float32 SVD is used even when training used
 CUDA):
@@ -414,7 +418,7 @@ CUDA):
 python analyze_intruder_experiment.py \
   --base_model meta-llama/Llama-3.2-1B-Instruct \
   --checkpoints_dir outputs/intruder_experiment \
-  --methods full stacked_lora \
+  --methods full single_lora stacked_lora \
   --layers 0 8 15 \
   --modules q_proj v_proj up_proj down_proj \
   --top_k 50 --epsilon 0.5 --adapter_eval_mode all

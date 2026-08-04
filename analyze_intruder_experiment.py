@@ -33,13 +33,14 @@ def arguments():
     parser.add_argument("--base_model", "--base-model", default="meta-llama/Llama-3.2-1B-Instruct")
     parser.add_argument("--checkpoints_dir", "--checkpoints-dir", type=Path,
                         default=Path("outputs/intruder_experiment"))
-    parser.add_argument("--methods", nargs="+", choices=("full", "stacked_lora"), default=["full", "stacked_lora"])
+    parser.add_argument("--methods", nargs="+", choices=("full", "single_lora", "stacked_lora"),
+                        default=["full", "single_lora", "stacked_lora"])
     parser.add_argument("--layers", nargs="+", type=int, default=[0, 8, 15])
     parser.add_argument("--modules", nargs="+",
                         default=["q_proj", "v_proj", "up_proj", "down_proj"])
     parser.add_argument("--top_k", "--top-k", type=int, default=50)
     parser.add_argument("--epsilon", type=float, default=0.5)
-    parser.add_argument("--adapter_eval_mode", "--adapter-eval-mode", choices=("all", "task_specific"), default="all")
+    parser.add_argument("--adapter_eval_mode", "--adapter-eval-mode", choices=("all", "task_specific", "learned_gates"), default="all")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -90,13 +91,18 @@ def main():
         rows = []
         vector_rows = []
         roots = {"full": args.checkpoints_dir / "full_finetune",
+                 "single_lora": args.checkpoints_dir / "single_lora",
                  "stacked_lora": args.checkpoints_dir / "stacked_lora"}
         for method in args.methods:
             for checkpoint in sorted(roots[method].glob(f"{method if method != 'full' else 'full'}_after_*")):
                 model, metadata = ContinualClassifier.load_checkpoint(checkpoint)
                 active = None
-                if method == "stacked_lora":
+                if method == "stacked_lora" and args.adapter_eval_mode == "learned_gates":
+                    model.set_task_gate(metadata["stage"])
+                elif method == "stacked_lora":
                     active = metadata["adapters"] if args.adapter_eval_mode == "all" else [metadata["stage"]]
+                elif method == "single_lora":
+                    active = metadata["adapters"]
                 tuned = matrices(model.encoder, args.layers, args.modules, active)
                 missing = set(base_u) - set(tuned)
                 if missing:

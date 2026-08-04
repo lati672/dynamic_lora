@@ -31,7 +31,7 @@ def main():
     plots = args.output_dir / "plots"
     plots.mkdir(parents=True, exist_ok=True)
     results = []
-    for folder in ("full_finetune", "stacked_lora"):
+    for folder in ("full_finetune", "single_lora", "stacked_lora"):
         path = args.output_dir / folder / "results.csv"
         if path.exists():
             results.extend(read_csv(path))
