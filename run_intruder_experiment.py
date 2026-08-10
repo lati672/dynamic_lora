@@ -27,8 +27,8 @@ def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--model_name", "--model-name", default="meta-llama/Llama-3.2-1B-Instruct")
     parser.add_argument("--output_dir", "--output-dir", type=Path, default=Path("outputs/intruder_experiment"))
-    parser.add_argument("--train_samples_per_task", "--train-samples-per-task", type=int, default=1000)
-    parser.add_argument("--eval_samples_per_task", "--eval-samples-per-task", type=int, default=500)
+    parser.add_argument("--train_samples_per_task", "--train-samples-per-task", type=int, default=8000)
+    parser.add_argument("--eval_samples_per_task", "--eval-samples-per-task", type=int, default=1000)
     parser.add_argument("--task_sequence", "--task-sequence", nargs="+", default=list(TASK_SPECS))
     parser.add_argument(
         "--methods", nargs="+", choices=("full", "single_lora", "stacked_lora"),
@@ -57,7 +57,7 @@ def arguments() -> argparse.Namespace:
     )
     parser.add_argument("--target_modules", "--target-modules", nargs="+",
                         default=["q_proj", "v_proj", "up_proj", "down_proj"])
-    parser.add_argument("--epochs", type=int, default=10)
+    parser.add_argument("--epochs", type=int, default=2)
     parser.add_argument("--batch_size", "--batch-size", type=int, default=8)
     parser.add_argument("--learning_rate", "--learning-rate", type=float, default=2e-5)
     parser.add_argument("--weight_decay", "--weight-decay", type=float, default=0.01)
