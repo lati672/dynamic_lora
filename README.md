@@ -168,6 +168,27 @@ produce the same matrix for LoRA checkpoints.
 The current eval path does not compute perplexity, validation loss, or
 logits-based classification.
 
+### Evaluate every continual checkpoint on Dolma
+
+Compute token-weighted next-token loss and perplexity for every saved
+full-weight, single-LoRA, and stacked-LoRA checkpoint after each continual
+learning task:
+
+```bash
+python3 -m dynamic_lora.eval_all_dolma \
+  --experiment-dir outputs/intruder_experiment_8k_epochs2_dolma_full_20k_rerun \
+  --num-documents 20000 \
+  --max-length 1024 \
+  --batch-size 1
+```
+
+The script samples and tokenizes Dolma once, then reuses the cache for every
+checkpoint. Results are saved as per-checkpoint JSON plus combined
+`dolma_eval/results.csv` and `dolma_eval/results.json`. Stacked-LoRA evaluation
+activates all adapters accumulated at each stage because Dolma has no
+classification task identity. Use `--list-only` to check checkpoint discovery
+without downloading data or loading model weights.
+
 ## Load Models From Hugging Face
 
 The artifact repo is `Kt672/dynamic_lora`. Download all continual stacked-LoRA
