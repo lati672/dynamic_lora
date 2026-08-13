@@ -61,12 +61,20 @@ def matrices(model, layers, suffixes, active=None):
     return found
 
 
-def heatmap(similarity, path, title):
+def heatmap(similarity, path, title, epsilon):
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig, axis = plt.subplots(figsize=(7, 6))
-    image = axis.imshow(similarity.numpy(), vmin=0, vmax=1, cmap="viridis", aspect="auto")
-    axis.set(title=title, xlabel="tuned singular vector", ylabel="pretrained singular vector")
-    fig.colorbar(image, ax=axis)
+    fig, axis = plt.subplots(figsize=(8, 7))
+    image = axis.imshow(similarity.numpy(), vmin=0, vmax=1, cmap="magma", aspect="equal")
+    axis.set(
+        title=f"{title}\nTop-{similarity.shape[0]} pretrained vs. top-{similarity.shape[1]} tuned",
+        xlabel="tuned singular-vector rank",
+        ylabel="pretrained singular-vector rank",
+    )
+    colorbar = fig.colorbar(image, ax=axis, pad=0.02)
+    colorbar.set_label("absolute cosine similarity")
+    colorbar.ax.axhline(epsilon, color="cyan", linewidth=2)
+    colorbar.ax.text(1.35, epsilon, f"epsilon={epsilon:g}", color="cyan", va="center",
+                     transform=colorbar.ax.get_yaxis_transform())
     fig.tight_layout()
     fig.savefig(path, dpi=160)
     plt.close(fig)
@@ -110,7 +118,8 @@ def main():
                 for (layer, module), weight in tuned.items():
                     tuned_u = torch.linalg.svd(weight, full_matrices=False).U
                     k = min(args.top_k, tuned_u.shape[1])
-                    similarity = (base_u[(layer, module)].T @ tuned_u[:, :k]).abs()
+                    base_k = min(args.top_k, base_u[(layer, module)].shape[1])
+                    similarity = (base_u[(layer, module)][:, :base_k].T @ tuned_u[:, :k]).abs()
                     maxima = similarity.max(dim=0).values
                     vector_rows.extend({
                         "method": method, "stage": metadata["stage"],
@@ -121,15 +130,16 @@ def main():
                     rows.append({
                         "method": method, "stage": metadata["stage"],
                         "adapter_eval_mode": args.adapter_eval_mode if method == "stacked_lora" else "n/a",
-                        "layer": layer, "module": module, "top_k": k, "epsilon": args.epsilon,
+                        "layer": layer, "module": module, "pretrained_top_k": base_k,
+                        "top_k": k, "epsilon": args.epsilon,
                         "num_intruders": int((maxima < args.epsilon).sum()), "mean_max_similarity": maxima.mean().item(),
                     })
                     heatmap(similarity, output / "heatmaps" / method / metadata["stage"] /
                             f"layer_{layer}_{module.replace('.', '_')}_{args.adapter_eval_mode}.png",
-                            f"{method} after {metadata['stage']}: layer {layer} {module}")
+                            f"{method} after {metadata['stage']}: layer {layer} {module}", args.epsilon)
                 del model
-    fields = ["method", "stage", "adapter_eval_mode", "layer", "module", "top_k", "epsilon",
-              "num_intruders", "mean_max_similarity"]
+    fields = ["method", "stage", "adapter_eval_mode", "layer", "module", "pretrained_top_k",
+              "top_k", "epsilon", "num_intruders", "mean_max_similarity"]
     with mode_path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fields)
         writer.writeheader()
