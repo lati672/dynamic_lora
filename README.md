@@ -170,9 +170,9 @@ logits-based classification.
 
 ### Evaluate every continual checkpoint on Dolma
 
-Compute token-weighted next-token loss and perplexity for every saved
-full-weight, single-LoRA, and stacked-LoRA checkpoint after each continual
-learning task:
+Compute token-weighted next-token loss and perplexity first for the
+Dolma-finetuned model and then for every saved full-weight, single-LoRA, and
+stacked-LoRA checkpoint after each continual-learning task:
 
 ```bash
 python3 -m dynamic_lora.eval_all_dolma \
@@ -182,8 +182,10 @@ python3 -m dynamic_lora.eval_all_dolma \
   --batch-size 1
 ```
 
-The script samples and tokenizes Dolma once, then reuses the cache for every
-checkpoint. Results are saved as per-checkpoint JSON plus combined
+The script reconstructs the exact shuffled stream recorded in the Dolma
+training metadata, skips the first 20,000 documents used for training, and uses
+the next 20,000 as a deterministic, disjoint held-out set. It tokenizes this set
+once, then reuses the cache for all 19 models. Results are saved as per-model JSON plus combined
 `dolma_eval/results.csv` and `dolma_eval/results.json`. Stacked-LoRA evaluation
 activates all adapters accumulated at each stage because Dolma has no
 classification task identity. Use `--list-only` to check checkpoint discovery

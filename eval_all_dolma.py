@@ -24,7 +24,7 @@ import torch
 import torch.nn.functional as F
 from datasets import load_dataset
 from huggingface_hub import hf_hub_download
-from transformers import AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from dynamic_lora.intruder_experiment.modeling import ContinualClassifier
 
@@ -34,11 +34,21 @@ METHOD_DIRS = ("full_finetune", "single_lora", "stacked_lora")
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--experiment-dir", type=Path, required=True)
-    p.add_argument("--dataset-id", default="allenai/dolma")
-    p.add_argument("--dataset-config", default="v1_6-sample")
+    p.add_argument("--baseline-model", type=Path, default=Path("artifacts/dolma_full_20k/final"),
+                   help="Dolma-finetuned causal LM, evaluated before continual checkpoints.")
+    p.add_argument("--training-metadata", type=Path, default=None,
+                   help="Defaults to <baseline-model>/training_metadata.json.")
+    p.add_argument("--dataset-id", default=None,
+                   help="Defaults to the value recorded by Dolma training.")
+    p.add_argument("--dataset-config", default=None,
+                   help="Defaults to the value recorded by Dolma training.")
     p.add_argument("--num-documents", type=int, default=20_000)
-    p.add_argument("--seed", type=int, default=123)
-    p.add_argument("--shuffle-buffer-size", type=int, default=10_000)
+    p.add_argument("--skip-documents", type=int, default=None,
+                   help="Usable stream rows to skip; defaults to the training document count.")
+    p.add_argument("--seed", type=int, default=None,
+                   help="Defaults to the exact seed recorded by Dolma training.")
+    p.add_argument("--shuffle-buffer-size", type=int, default=None,
+                   help="Defaults to the exact buffer size recorded by Dolma training.")
     p.add_argument("--max-length", type=int, default=1_024)
     p.add_argument("--batch-size", type=int, default=1)
     p.add_argument("--projection-chunk-size", type=int, default=128,
@@ -53,15 +63,36 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--methods", nargs="+", choices=METHOD_DIRS, default=list(METHOD_DIRS))
     p.add_argument("--list-only", action="store_true")
     a = p.parse_args()
-    for name in ("num_documents", "shuffle_buffer_size", "max_length", "batch_size",
-                 "projection_chunk_size"):
+    for name in ("num_documents", "max_length", "batch_size", "projection_chunk_size"):
         if getattr(a, name) <= 0:
             p.error(f"--{name.replace('_', '-')} must be positive")
     if a.log_every < 0:
         p.error("--log-every cannot be negative")
     a.output_dir = a.output_dir or a.experiment_dir / "dolma_eval"
-    a.cache_dir = a.cache_dir or a.output_dir / "token_cache"
+    a.cache_dir = a.cache_dir or a.output_dir / "heldout_token_cache"
     return a
+
+
+def apply_training_metadata(a: argparse.Namespace) -> dict[str, Any]:
+    path = a.training_metadata or a.baseline_model / "training_metadata.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"Dolma training metadata not found: {path}")
+    metadata = json.loads(path.read_text(encoding="utf-8"))
+    defaults = {
+        "dataset_id": metadata["dataset_id"],
+        "dataset_config": metadata["dataset_config"],
+        "seed": metadata["seed"],
+        "shuffle_buffer_size": metadata["shuffle_buffer_size"],
+        "skip_documents": metadata["num_documents"],
+    }
+    for name, value in defaults.items():
+        if getattr(a, name) is None:
+            setattr(a, name, value)
+    if a.skip_documents < 0 or a.shuffle_buffer_size <= 0:
+        raise ValueError("Skip count must be non-negative and shuffle buffer must be positive")
+    print(f"[holdout] seed={a.seed} buffer={a.shuffle_buffer_size:,} "
+          f"skip_training_documents={a.skip_documents:,} eval_documents={a.num_documents:,}", flush=True)
+    return metadata
 
 
 def resolve_dtype(name: str) -> torch.dtype:
@@ -101,7 +132,7 @@ def dolma_rows(a: argparse.Namespace) -> Iterator[dict[str, Any]]:
 
 def cache_spec(a: argparse.Namespace, model_name: str) -> dict[str, Any]:
     return {"dataset_id": a.dataset_id, "dataset_config": a.dataset_config,
-            "num_documents": a.num_documents, "seed": a.seed,
+            "num_documents": a.num_documents, "skip_documents": a.skip_documents, "seed": a.seed,
             "shuffle_buffer_size": a.shuffle_buffer_size, "max_length": a.max_length,
             "batch_size": a.batch_size, "tokenizer": model_name}
 
@@ -128,6 +159,15 @@ def prepare_cache(a: argparse.Namespace, model_name: str) -> dict[str, Any]:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     rows, seen, batch_index = dolma_rows(a), 0, 0
+    print(f"[cache:skip] advancing past {a.skip_documents:,} training documents", flush=True)
+    for skipped in range(a.skip_documents):
+        try:
+            next(rows)
+        except StopIteration as error:
+            raise RuntimeError(f"Dolma ended while skipping training document {skipped:,}") from error
+        if a.log_every and (skipped + 1) % (a.log_every * a.batch_size) == 0:
+            print(f"[cache:skip] documents={skipped + 1:,}/{a.skip_documents:,}", flush=True)
+    print("[cache:skip:done] held-out range begins", flush=True)
     sampled_ids: list[str] = []
     source_counts: dict[str, int] = {}
     while seen < a.num_documents:
@@ -157,21 +197,66 @@ def prepare_cache(a: argparse.Namespace, model_name: str) -> dict[str, Any]:
     return metadata
 
 
-def batch_nll(model: ContinualClassifier, input_ids: torch.Tensor,
-              attention_mask: torch.Tensor, chunk_size: int) -> tuple[float, int]:
-    hidden = model.encoder(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state[:, :-1]
+def projected_nll(hidden: torch.Tensor, output_weight: torch.Tensor, input_ids: torch.Tensor,
+                  attention_mask: torch.Tensor, chunk_size: int) -> tuple[float, int]:
+    hidden = hidden[:, :-1]
     labels, valid = input_ids[:, 1:], attention_mask[:, 1:].bool()
     hidden, labels = hidden[valid], labels[valid]
     count = labels.numel()
     if not count:
         return 0.0, 0
-    embedding = model.encoder.get_input_embeddings().weight
     nll = 0.0
     for start in range(0, count, chunk_size):
         stop = min(start + chunk_size, count)
-        logits = F.linear(hidden[start:stop], embedding)
+        logits = F.linear(hidden[start:stop], output_weight)
         nll += float(F.cross_entropy(logits.float(), labels[start:stop], reduction="sum"))
     return nll, count
+
+
+def batch_nll(model: ContinualClassifier, input_ids: torch.Tensor,
+              attention_mask: torch.Tensor, chunk_size: int) -> tuple[float, int]:
+    hidden = model.encoder(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+    return projected_nll(hidden, model.encoder.get_input_embeddings().weight,
+                         input_ids, attention_mask, chunk_size)
+
+
+def evaluate_baseline(a: argparse.Namespace, cache: dict[str, Any], dtype: torch.dtype) -> dict[str, Any]:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = AutoModelForCausalLM.from_pretrained(a.baseline_model, token=a.token, dtype=dtype)
+    model.to(device).eval()
+    decoder = model.get_decoder()
+    output_weight = model.get_output_embeddings().weight
+    total_nll, total_tokens, started = 0.0, 0, time.time()
+    with torch.inference_mode():
+        for index in range(cache["num_batches"]):
+            batch = torch.load(a.cache_dir / f"batch_{index:06d}.pt", map_location="cpu",
+                               weights_only=True)
+            input_ids = batch["input_ids"].to(device)
+            attention_mask = batch["attention_mask"].to(device)
+            hidden = decoder(input_ids=input_ids, attention_mask=attention_mask).last_hidden_state
+            nll, count = projected_nll(hidden, output_weight, input_ids, attention_mask,
+                                       a.projection_chunk_size)
+            total_nll += nll
+            total_tokens += count
+            if a.log_every and (index + 1) % a.log_every == 0:
+                mean = total_nll / total_tokens
+                print(f"[eval] checkpoint=dolma_finetuned batches={index + 1}/{cache['num_batches']} "
+                      f"tokens={total_tokens:,} loss={mean:.6f} ppl={math.exp(mean):.4f}", flush=True)
+    if not total_tokens:
+        raise RuntimeError("The held-out sample contains no predicted tokens")
+    mean = total_nll / total_tokens
+    result = {"method": "dolma_finetuned", "stage": "before_continual_learning",
+              "stage_index": -1, "checkpoint": str(a.baseline_model), "base_model": str(a.baseline_model),
+              "active_adapters": [], "num_documents": cache["num_documents"],
+              "num_predicted_tokens": total_tokens, "max_length": cache["max_length"],
+              "mean_nll": mean, "perplexity": math.exp(mean) if mean < 709 else float("inf"),
+              "dtype": str(dtype).removeprefix("torch."), "elapsed_seconds": time.time() - started,
+              "dataset_id": cache["dataset_id"], "dataset_config": cache["dataset_config"],
+              "seed": cache["seed"], "skip_documents": cache["skip_documents"]}
+    del decoder, model
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    return result
 
 
 def evaluate(a: argparse.Namespace, checkpoint: Path, metadata: dict[str, Any],
@@ -227,6 +312,7 @@ def write_summary(output_dir: Path, results: list[dict[str, Any]]) -> None:
 
 def main() -> None:
     a = parse_args()
+    training_metadata = apply_training_metadata(a)
     checkpoints = discover_checkpoints(a.experiment_dir, a.methods)
     if not checkpoints:
         raise SystemExit(f"No checkpoints found under {a.experiment_dir}")
@@ -238,9 +324,25 @@ def main() -> None:
     model_names = {metadata["model_name"] for _, metadata in checkpoints}
     if len(model_names) != 1:
         raise RuntimeError(f"Expected one base model/tokenizer; found {sorted(model_names)}")
+    checkpoint_base = Path(next(iter(model_names))).resolve()
+    if checkpoint_base != a.baseline_model.resolve():
+        raise RuntimeError(f"Continual checkpoints use {checkpoint_base}, not baseline {a.baseline_model.resolve()}")
+    if a.skip_documents != training_metadata["num_documents"]:
+        print("[holdout:warning] --skip-documents differs from the recorded training count", flush=True)
     a.output_dir.mkdir(parents=True, exist_ok=True)
-    cache = prepare_cache(a, next(iter(model_names)))
+    cache = prepare_cache(a, str(a.baseline_model))
     dtype, results = resolve_dtype(a.dtype), []
+    baseline_file = a.output_dir / "dolma_finetuned_before_continual.json"
+    if baseline_file.is_file() and not a.overwrite:
+        print(f"[eval:reuse] {baseline_file}", flush=True)
+        results.append(json.loads(baseline_file.read_text(encoding="utf-8")))
+    else:
+        print(f"[eval:start] Dolma-finetuned baseline {a.baseline_model}", flush=True)
+        baseline = evaluate_baseline(a, cache, dtype)
+        baseline_file.write_text(json.dumps(baseline, indent=2) + "\n", encoding="utf-8")
+        results.append(baseline)
+        print(f"[eval:done] method={baseline['method']} loss={baseline['mean_nll']:.6f} "
+              f"ppl={baseline['perplexity']:.4f}", flush=True)
     for checkpoint, metadata in checkpoints:
         result_file = a.output_dir / f"{metadata['method']}_after_{metadata['stage']}.json"
         if result_file.is_file() and not a.overwrite:
