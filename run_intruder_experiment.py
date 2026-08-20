@@ -22,11 +22,16 @@ if str(REPO_PARENT) not in sys.path:
 from dynamic_lora.intruder_experiment.data import TASK_SPECS, load_and_sample_tasks
 from dynamic_lora.intruder_experiment.modeling import ContinualClassifier
 
+DEFAULT_MODEL_NAME = "Kt672/Dolma_pretain"
+
 
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument("--model_name", "--model-name", default="meta-llama/Llama-3.2-1B-Instruct")
-    parser.add_argument("--output_dir", "--output-dir", type=Path, default=Path("outputs/intruder_experiment"))
+    parser.add_argument(
+        "--model_name", "--model-name", default=DEFAULT_MODEL_NAME,
+        help="Hugging Face model repository or local Transformers checkpoint used before continual learning.",
+    )
+    parser.add_argument("--output_dir", "--output-dir", type=Path, default=Path("outputs/intruder_experiment_dolma"))
     parser.add_argument("--train_samples_per_task", "--train-samples-per-task", type=int, default=8000)
     parser.add_argument("--eval_samples_per_task", "--eval-samples-per-task", type=int, default=1000)
     parser.add_argument("--task_sequence", "--task-sequence", nargs="+", default=list(TASK_SPECS))
@@ -34,13 +39,15 @@ def arguments() -> argparse.Namespace:
         "--methods", nargs="+", choices=("full", "single_lora", "stacked_lora"),
         default=["full", "single_lora", "stacked_lora"],
     )
-    parser.add_argument("--adapter_eval_mode", "--adapter-eval-mode", choices=("all", "task_specific", "learned_gates"), default="learned_gates")
-    parser.add_argument("--rank", type=int, default=16, help="Shared rank for single and stacked LoRA.")
+    parser.add_argument(
+        "--adapter_eval_mode", "--adapter-eval-mode",
+        choices=("all", "task_specific", "fixed_gates"), default="all")
+    parser.add_argument("--rank", type=int, default=32, help="Shared rank for single and stacked LoRA.")
     parser.add_argument("--lora_alpha", "--lora-alpha", type=float, default=32)
     parser.add_argument("--lora_dropout", "--lora-dropout", type=float, default=0.05)
     parser.add_argument(
-        "--orthogonal_penalty_weight", "--orthogonal-penalty-weight", type=float, default=0.1,
-        help="Weight of the normalized ||A_previous @ A_new.T||_1 penalty for stacked_lora.",
+        "--orthogonal_penalty_weight", "--orthogonal-penalty-weight", type=float, default=0.03,
+        help="Orthogonal-regularization weight for stacked LoRA.",
     )
     parser.add_argument(
         "--orthogonal_penalty_type", "--orthogonal-penalty-type",
@@ -57,9 +64,9 @@ def arguments() -> argparse.Namespace:
     )
     parser.add_argument("--target_modules", "--target-modules", nargs="+",
                         default=["q_proj", "v_proj", "up_proj", "down_proj"])
-    parser.add_argument("--epochs", type=int, default=2)
+    parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--batch_size", "--batch-size", type=int, default=8)
-    parser.add_argument("--learning_rate", "--learning-rate", type=float, default=2e-5)
+    parser.add_argument("--learning_rate", "--learning-rate", type=float, default=5e-5)
     parser.add_argument("--weight_decay", "--weight-decay", type=float, default=0.01)
     parser.add_argument("--warmup_ratio", "--warmup-ratio", type=float, default=0.06)
     parser.add_argument("--max_length", "--max-length", type=int, default=256)
@@ -169,6 +176,21 @@ def write_results(path: Path, rows: list[dict]) -> None:
         writer.writerows(rows)
 
 
+def config_dict(args, **extra) -> dict:
+    """Return a JSON-serializable snapshot of the effective CLI configuration."""
+    config = {
+        key: str(value) if isinstance(value, Path) else value
+        for key, value in vars(args).items()
+    }
+    config.update(extra)
+    return config
+
+
+def write_config(path: Path, args, **extra) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(config_dict(args, **extra), indent=2) + "\n")
+
+
 def run_method(method: str, data, tokenizer, args, device) -> None:
     task_labels = {task: TASK_SPECS[task].num_labels for task in args.task_sequence}
     model = ContinualClassifier(args.model_name, task_labels)
@@ -179,6 +201,13 @@ def run_method(method: str, data, tokenizer, args, device) -> None:
     adapters: list[str] = []
     result_rows: list[dict] = []
     method_dir = args.output_dir / ("full_finetune" if method == "full" else method)
+    write_config(
+        method_dir / "config.json", args,
+        method=method,
+        method_output_dir=str(method_dir),
+        effective_lora_rank=method_lora_rank if method in {"single_lora", "stacked_lora"} else None,
+        effective_lora_alpha=args.lora_alpha if method in {"single_lora", "stacked_lora"} else None,
+    )
 
     if method == "single_lora":
         model.add_adapter("shared")
@@ -195,7 +224,7 @@ def run_method(method: str, data, tokenizer, args, device) -> None:
         if method == "stacked_lora":
             model.add_adapter(adapter)
             adapters.append(adapter)
-            if args.adapter_eval_mode == "learned_gates":
+            if args.adapter_eval_mode == "fixed_gates":
                 model.configure_task_gate(task, adapters)
                 model.set_task_gate(task)
             else:
@@ -212,6 +241,17 @@ def run_method(method: str, data, tokenizer, args, device) -> None:
             "method": method, "stage": task, "stage_index": stage_index, "model_name": args.model_name,
             "task_labels": task_labels, "task_sequence": args.task_sequence, "adapters": adapters,
             "target_modules": args.target_modules, "lora_rank": method_lora_rank,
+            "epochs": args.epochs,
+            "learning_rate": args.learning_rate,
+            "batch_size": args.batch_size,
+            "weight_decay": args.weight_decay,
+            "warmup_ratio": args.warmup_ratio,
+            "max_length": args.max_length,
+            "train_samples_per_task": args.train_samples_per_task,
+            "eval_samples_per_task": args.eval_samples_per_task,
+            "seed": args.seed,
+            "lora_dropout": args.lora_dropout if method in {"single_lora", "stacked_lora"} else None,
+            "fixed_gate_value": 1.0 if method == "stacked_lora" and args.adapter_eval_mode == "fixed_gates" else None,
             "lora_alpha": args.lora_alpha, "adapter_eval_mode": args.adapter_eval_mode,
             "orthogonal_penalty": args.orthogonal_penalty_type if method == "stacked_lora" else None,
             "orthogonal_penalty_type": args.orthogonal_penalty_type if method == "stacked_lora" else None,
@@ -226,7 +266,7 @@ def run_method(method: str, data, tokenizer, args, device) -> None:
             tokenizer.save_pretrained(checkpoint)
 
         for eval_task in args.task_sequence[: stage_index + 1]:
-            if method == "stacked_lora" and args.adapter_eval_mode == "learned_gates":
+            if method == "stacked_lora" and args.adapter_eval_mode == "fixed_gates":
                 model.set_task_gate(eval_task)
             elif method == "stacked_lora":
                 active = adapters if args.adapter_eval_mode == "all" else [eval_task]
@@ -235,7 +275,7 @@ def run_method(method: str, data, tokenizer, args, device) -> None:
             result_rows.append({"method": method, "stage": task, "eval_task": eval_task,
                                 "accuracy": accuracy, "loss": loss})
             print(f"[eval] method={method} stage={task} task={eval_task} accuracy={accuracy:.4f}", flush=True)
-        if method == "stacked_lora" and args.adapter_eval_mode == "learned_gates":
+        if method == "stacked_lora" and args.adapter_eval_mode == "fixed_gates":
             model.set_task_gate(task)
         elif method == "stacked_lora":
             model.set_active_adapters(adapters)
@@ -246,7 +286,7 @@ def main() -> None:
     args = arguments()
     seed_everything(args.seed)
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    (args.output_dir / "config.json").write_text(json.dumps(vars(args) | {"output_dir": str(args.output_dir)}, indent=2) + "\n")
+    write_config(args.output_dir / "config.json", args)
     data = load_and_sample_tasks(args.task_sequence, args.train_samples_per_task, args.eval_samples_per_task,
                                  args.seed, args.output_dir / "sampled_data")
     tokenizer = AutoTokenizer.from_pretrained(args.model_name)

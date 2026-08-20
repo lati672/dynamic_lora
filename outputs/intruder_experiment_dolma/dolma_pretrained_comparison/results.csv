@@ -1,0 +1,5 @@
+method,stage,checkpoint,active_adapters,num_documents,num_predicted_tokens,max_length,mean_nll,perplexity,dtype,elapsed_seconds
+pretrained_dolma,before_continual_learning,artifacts/dolma_full_20k/final,,1000,379606,1024,2.981630186817911,19.719937638426877,bfloat16,12.266780376434326
+full,fever,outputs/intruder_experiment_dolma/full_finetune/full_after_fever,,1000,379606,1024,3.6058474103773226,36.81286624811499,bfloat16,11.700092554092407
+single_lora,fever,outputs/intruder_experiment_dolma/single_lora/single_lora_after_fever,shared,1000,379606,1024,3.072011211507894,21.585271594980952,bfloat16,12.93122673034668
+stacked_lora,fever,outputs/intruder_experiment_dolma/stacked_lora/stacked_lora_after_fever,"mnli,qqp,sst2,siqa,winogrande,fever",1000,379606,1024,3.093422888812591,22.05243196068444,bfloat16,18.998967170715332

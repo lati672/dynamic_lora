@@ -415,32 +415,60 @@ with orthogonal loss. Samples and their source indices are cached under
 
 ```bash
 python run_intruder_experiment.py \
-  --model_name meta-llama/Llama-3.2-1B-Instruct \
+  --model_name Kt672/Dolma_pretain \
   --output_dir outputs/intruder_experiment \
   --train_samples_per_task 1000 --eval_samples_per_task 500 \
   --task_sequence mnli qqp sst2 siqa winogrande fever \
   --methods full single_lora stacked_lora \
-  --rank=16 --lora_alpha 32 --lora_dropout 0.05 \
-  --orthogonal_penalty_weight 0.1 --orthogonal_penalty_type effective_update \
-  --orthogonal_schedule linear --adapter_eval_mode learned_gates \
-  --epochs 10 --batch_size 8 --learning_rate 2e-5 --seed 42
+  --rank 32 --lora_alpha 32 --lora_dropout 0.05 \
+  --orthogonal_penalty_weight 0.03 --orthogonal_penalty_type effective_update \
+  --orthogonal_schedule linear --adapter_eval_mode all \
+  --epochs 4 --batch_size 8 --learning_rate 5e-5 --seed 42
 ```
+
+`--model_name` accepts either a Hugging Face model repository or a local
+Transformers checkpoint. It defaults to the Dolma-pretrained model at
+`Kt672/Dolma_pretain`; Transformers downloads and loads that checkpoint before
+the continual-learning task sequence starts.
+
+Each run writes the complete CLI snapshot to `<output-dir>/config.json` and a
+durable method-specific snapshot to `<output-dir>/<method>/config.json`.
+Checkpoint `metadata.json` files also record epochs, learning rate, batch size,
+sample counts, seed, LoRA settings, and adapter-evaluation/orthogonality settings.
 
 For `single_lora`, one shared adapter is updated throughout the task sequence
 using cross-entropy only.
-For stacked LoRA, the integrated default uses rank 16, a linearly ramped weight
-of 0.1, and squared Frobenius-cosine orthogonality between effective `BA`
-updates. Learned task gates mix the adapters available when each task is trained;
-the gate, task head, and previous adapters are then frozen, preventing later tasks
-from changing that task’s inference path.
+For stacked LoRA, the integrated default uses rank 32, a linearly ramped weight
+of 0.03, and squared Frobenius-cosine orthogonality between effective `BA`
+updates. All adapters accumulated through the current stage are active with
+fixed weight `g=1`; no gate is learned. During evaluation, every task uses all
+adapters accumulated at that stage, so later adapters can affect earlier-task
+accuracy.
+
+### Saved `intruder_experiment_dolma` configuration
+
+The completed experiment under `outputs/intruder_experiment_dolma` uses shared
+data and model settings but method-specific optimization settings:
+
+- All methods: `Kt672/Dolma_pretain`, 8,000 training samples and 1,000 evaluation
+  samples per task, batch size 8, maximum length 256, and seed 42.
+- Full-weight: 2 epochs and learning rate `2e-5`.
+- Single LoRA: 4 epochs, learning rate `5e-5`, rank 32, and alpha 32.
+- Stacked LoRA: the same LoRA settings plus all accumulated adapters at fixed
+  `g=1`, effective-update orthogonality, a linearly scheduled weight of 0.03,
+  and dropout 0.05.
+
+This differs from the CLI defaults only for full-weight training: the shared
+defaults are 4 epochs and `5e-5` for every method. The exact saved-run provenance
+is also recorded in `outputs/intruder_experiment_dolma/EXPERIMENT_CONFIG.md`.
 
 Run SVD analysis after training (CPU float32 SVD is used even when training used
 CUDA):
 
 ```bash
 python analyze_intruder_experiment.py \
-  --base_model meta-llama/Llama-3.2-1B-Instruct \
-  --checkpoints_dir outputs/intruder_experiment \
+  --base_model Kt672/Dolma_pretain \
+  --checkpoints_dir outputs/intruder_experiment_dolma \
   --methods full single_lora stacked_lora \
   --layers 0 8 15 \
   --modules q_proj v_proj up_proj down_proj \
@@ -449,6 +477,35 @@ python analyze_intruder_experiment.py \
 python plot_intruder_results.py \
   --output_dir outputs/intruder_experiment
 ```
+
+Scale full-weight intruder components and reevaluate the saved checkpoints:
+
+```bash
+PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
+./.venv/bin/python scale_full_weight_intruders.py \
+  --experiment-dir outputs/intruder_experiment_dolma \
+  --output-dir outputs/intruder_experiment_dolma/full_finetune_intruder_scaled \
+  --epsilon 0.8 \
+  --top-k 100 \
+  --lambda-scale 0.5 \
+  --modules q_proj v_proj up_proj down_proj
+```
+
+This command processes every matching transformer layer and the top 100
+singular triplets from each reduced SVD. A tuned left singular vector `u_i` is
+an intruder when its maximum absolute cosine similarity with the pretrained
+top-100 left singular vectors is below 0.8. Each detected component is changed using
+`W_scaled = W_tuned + (0.5 - 1) u_i sigma_i v_i^T`; multiple intruders are
+summed in the correction.
+Lambda is selected from the discrete set `{0, 0.5}`. Set `--lambda-scale 0`
+or `--lambda-scale 0.5`; other values are rejected.
+
+The script writes corrected continual-learning scores to `results.csv`, plus
+per-matrix counts and similarities to `intruder_scaling.csv`. Scaled full-model
+checkpoints are not duplicated by default because the six source checkpoints
+occupy about 14 GB. Pass `--save-scaled-checkpoints` only when sufficient disk
+space is available. Use `--layers 0 8 15` if only the previously analyzed
+layers should be modified instead of every layer.
 
 Run the analysis again with `--adapter_eval_mode task_specific` to compare
 modes. Each mode has its own cache, and `intruder_counts.csv` combines all

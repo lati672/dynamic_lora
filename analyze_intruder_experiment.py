@@ -40,7 +40,7 @@ def arguments():
                         default=["q_proj", "v_proj", "up_proj", "down_proj"])
     parser.add_argument("--top_k", "--top-k", type=int, default=50)
     parser.add_argument("--epsilon", type=float, default=0.5)
-    parser.add_argument("--adapter_eval_mode", "--adapter-eval-mode", choices=("all", "task_specific", "learned_gates"), default="all")
+    parser.add_argument("--adapter_eval_mode", "--adapter-eval-mode", choices=("all", "task_specific", "fixed_gates"), default="all")
     parser.add_argument("--overwrite", action="store_true")
     return parser.parse_args()
 
@@ -105,7 +105,7 @@ def main():
             for checkpoint in sorted(roots[method].glob(f"{method if method != 'full' else 'full'}_after_*")):
                 model, metadata = ContinualClassifier.load_checkpoint(checkpoint)
                 active = None
-                if method == "stacked_lora" and args.adapter_eval_mode == "learned_gates":
+                if method == "stacked_lora" and args.adapter_eval_mode == "fixed_gates":
                     model.set_task_gate(metadata["stage"])
                 elif method == "stacked_lora":
                     active = metadata["adapters"] if args.adapter_eval_mode == "all" else [metadata["stage"]]

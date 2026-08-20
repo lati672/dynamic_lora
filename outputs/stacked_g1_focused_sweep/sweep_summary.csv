@@ -1,0 +1,9 @@
+variant,rank,evaluation_mode,penalty_type,orthogonal_weight,lora_alpha,learning_rate,epochs,final_average_accuracy,acquisition_average_accuracy,average_forgetting,final_mnli,final_qqp,final_sst2,final_siqa,final_winogrande,final_fever
+r32_fixed_gates_effective_update_w0.03_a32_lr5e-05_e4,32,fixed_gates,effective_update,0.03,32,5e-05,4,0.7223333333333334,0.7223333333333334,0.0,0.78,0.81,0.936,0.62,0.542,0.646
+r16_fixed_gates_effective_update_w0.03_a32_lr2e-05_e4,16,fixed_gates,effective_update,0.03,32,2e-05,4,0.6343333333333333,0.6343333333333333,0.0,0.7,0.782,0.924,0.344,0.514,0.542
+r16_fixed_gates_effective_update_w0.03_a32_lr5e-05_e2,16,fixed_gates,effective_update,0.03,32,5e-05,2,0.615,0.615,0.0,0.52,0.774,0.934,0.422,0.514,0.526
+r32_fixed_gates_effective_update_w0.03_a32_lr2e-05_e2,32,fixed_gates,effective_update,0.03,32,2e-05,2,0.5583333333333333,0.5583333333333333,0.0,0.512,0.708,0.928,0.342,0.468,0.392
+r16_fixed_gates_effective_update_w0.01_a32_lr2e-05_e2,16,fixed_gates,effective_update,0.01,32,2e-05,2,0.5576666666666666,0.5576666666666666,0.0,0.504,0.704,0.928,0.348,0.47,0.392
+r16_fixed_gates_effective_update_w0.03_a32_lr2e-05_e2,16,fixed_gates,effective_update,0.03,32,2e-05,2,0.5556666666666666,0.5556666666666666,0.0,0.504,0.706,0.928,0.344,0.46,0.392
+r16_fixed_gates_effective_update_w0.1_a32_lr2e-05_e2,16,fixed_gates,effective_update,0.1,32,2e-05,2,0.555,0.555,0.0,0.504,0.702,0.928,0.338,0.466,0.392
+r16_fixed_gates_effective_update_w0.03_a16_lr2e-05_e2,16,fixed_gates,effective_update,0.03,16,2e-05,2,0.5296666666666667,0.5296666666666667,0.0,0.44,0.616,0.92,0.334,0.474,0.394

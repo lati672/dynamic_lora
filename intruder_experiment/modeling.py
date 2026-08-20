@@ -115,21 +115,19 @@ class ContinualClassifier(nn.Module):
         if task in self.task_gates:
             return
         device = next(self.parameters()).device
-        initial = torch.zeros(len(adapters), dtype=torch.float32, device=device)
-        initial[-1] = 1.0
-        self.task_gates[task] = nn.Parameter(initial)
+        self.task_gates[task] = nn.Parameter(
+            torch.ones(len(adapters), dtype=torch.float32, device=device), requires_grad=False
+        )
         self.task_gate_adapters[task] = list(adapters)
 
     def set_task_gate(self, task: str) -> None:
-        self.set_active_adapters(self.task_gate_adapters[task], self.task_gates[task])
+        self.set_active_adapters(self.task_gate_adapters[task])
 
     def set_trainable(self, task: str, adapter: str | None) -> None:
         for parameter in self.parameters():
             parameter.requires_grad = False
         for parameter in self.heads[task].parameters():
             parameter.requires_grad = True
-        if task in self.task_gates:
-            self.task_gates[task].requires_grad = True
         if adapter:
             for module in self.modules():
                 if isinstance(module, AdditiveLoRALinear):
