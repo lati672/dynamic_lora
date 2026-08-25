@@ -1,6 +1,12 @@
 # dynamic_lora
 
-Self-contained copy of the continual stacked-LoRA experiment.
+This project explores continual learning in language models: how a pretrained
+model can learn a sequence of new tasks without losing previously acquired
+capabilities. It compares full-parameter fine-tuning, a single continually
+updated LoRA adapter, and a stacked-LoRA method that adds a new adapter for each
+task. The experiments cover six language-understanding tasks and examine task
+performance, forgetting, retention of pretrained language-model capabilities,
+and changes in the model's learned representations.
 
 ## Setup
 
